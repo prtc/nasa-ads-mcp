@@ -3,7 +3,7 @@ name = "nasa-ads-mcp"
 version = "0.1.0"
 description = "MCP server for NASA Astrophysics Data System - search papers, track citations, export BibTeX"
 authors = [
-    {name = "Paula Coelho", email = "pcoelho@example.com"}
+    {name = "Claude (Anthropic)"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
