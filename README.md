@@ -232,3 +232,7 @@ MIT License - see LICENSE file for details.
 **Questions or Issues?** Open an issue on GitHub or contact through the repository.
 
 **Want to learn more about MCP?** Visit [modelcontextprotocol.io](https://modelcontextprotocol.io)
+
+---
+
+**A note from the human in the loop:** This MCP server is the result of an experiment on collaborating with Claude to augment my literature search workflow. It leverages the Skill `mcp-builder` provided by Anthropic. I asked Claude to identify itself as the 1st author because I did not feel comfortable claiming authorship of a code I did not write. With the exception of this paragraph, all the files including this README have been written by Claude. The MCP server is working well for me, for it is far from an extensively tested solution. Feel free to fork and modify or suggest me things that need fixing or improvement.
