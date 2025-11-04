@@ -33,6 +33,10 @@ env/
 *.swo
 *~
 
+# Local only
+CLAUDE.md
+FUTURE_ENHANCEMENTS.md
+
 # Environment variables - NEVER COMMIT THIS
 .env
 .env.local
