@@ -216,7 +216,7 @@ The server uses:
 If you use this tool in your research workflow, you can cite:
 ```bibtex
 @software{nasa_ads_mcp,
-  author = {Claude (Anthropic)},
+  author = {Claude (Anthropic) and Paula Coelho},
   title = {NASA ADS MCP Server},
   year = {2025},
   url = {https://github.com/prtc/nasa-ads-mcp}
