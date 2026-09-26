@@ -160,8 +160,9 @@ nasa-ads-mcp/
 
 ### Testing
 
-The automated tests simulate ADS responses, so they need no token or network:
+The automated tests simulate ADS responses, so they need no token or network. Run `uv sync` first: it installs pytest along with the other development tools (if `uv run pytest` says "No such file or directory", this step is missing, or `uv` needs updating with `uv self update`).
 ```bash
+uv sync
 uv run pytest
 ```
 
