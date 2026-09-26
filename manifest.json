@@ -1,0 +1,112 @@
+{
+  "manifest_version": "0.4",
+  "name": "nasa-ads",
+  "display_name": "NASA ADS",
+  "version": "0.4.0",
+  "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
+  "long_description": "Gives Claude access to the NASA Astrophysics Data System (ADS) with your own ADS token: search papers, read abstracts, get citation and read metrics for papers and authors, export BibTeX exactly as ADS formats it, and list, create, and add to your ADS libraries. The server runs on your computer and talks only to the ADS API. A human-AI collaboration by Paula Coelho and Claude (Anthropic).",
+  "author": {
+    "name": "Paula Coelho",
+    "url": "https://github.com/prtc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prtc/nasa-ads-mcp"
+  },
+  "homepage": "https://github.com/prtc/nasa-ads-mcp",
+  "documentation": "https://github.com/prtc/nasa-ads-mcp#readme",
+  "support": "https://github.com/prtc/nasa-ads-mcp/issues",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/nasa_ads_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "--locked",
+        "--no-dev",
+        "--quiet",
+        "src/nasa_ads_mcp/server.py"
+      ],
+      "env": {
+        "ADS_API_TOKEN": "${user_config.ads_api_token}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "search_papers",
+      "description": "Search NASA ADS for astronomy/astrophysics papers. Returns bibcodes, titles, authors, years, and citation counts. Use natural language queries or specific field searches. Examples: 'stellar populations', 'author:Coelho', 'year:2020-2024'"
+    },
+    {
+      "name": "get_paper_details",
+      "description": "Get detailed information about a specific paper using its bibcode. Returns full metadata including abstract, authors, citations, keywords, and more."
+    },
+    {
+      "name": "get_author_papers",
+      "description": "Find all papers by a specific author. Returns list of papers with citations and publication details."
+    },
+    {
+      "name": "export_bibtex",
+      "description": "Export BibTeX citations for one or more papers, exactly as ADS formats them (journal macros, volume, pages, DOI, eprint). Useful for adding references to LaTeX/Quarto documents."
+    },
+    {
+      "name": "get_paper_metrics",
+      "description": "Get detailed metrics for specific papers including citation count, reads, and impact indicators. Useful for tracking paper impact over time."
+    },
+    {
+      "name": "get_author_metrics",
+      "description": "Get comprehensive metrics for an author including h-index, total citations, paper count, and citation statistics. Useful for CV preparation and tracking research impact. Note: matches every paper with this author name, so common names may include other people's papers."
+    },
+    {
+      "name": "list_libraries",
+      "description": "List all your personal paper libraries/collections in ADS. Shows library names, descriptions, and paper counts."
+    },
+    {
+      "name": "get_library_papers",
+      "description": "Get all papers from a specific library. Returns paper details for papers in the specified collection."
+    },
+    {
+      "name": "create_library",
+      "description": "Create a new paper library/collection in the user's ADS account. Useful for organizing papers by topic, project, or reading status."
+    },
+    {
+      "name": "add_to_library",
+      "description": "Add papers to an existing library in the user's ADS account. Provide library ID and list of bibcodes to add. Papers already in the library are not duplicated."
+    }
+  ],
+  "keywords": [
+    "astronomy",
+    "astrophysics",
+    "nasa-ads",
+    "literature",
+    "bibtex",
+    "citations"
+  ],
+  "license": "MIT",
+  "privacy_policies": [
+    "https://ui.adsabs.harvard.edu/help/policies/privacy",
+    "https://github.com/prtc/nasa-ads-mcp#data-and-privacy"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "user_config": {
+    "ads_api_token": {
+      "type": "string",
+      "title": "NASA ADS API token",
+      "description": "Your personal token from https://ui.adsabs.harvard.edu/user/settings/token",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

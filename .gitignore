@@ -53,3 +53,6 @@ htmlcov/
 
 # MCP logs
 *.log
+
+# Claude Desktop bundles (built by the release workflow)
+*.mcpb

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-09-26
+
+### Added
+- Claude Desktop bundle: `manifest.json` builds `nasa-ads.mcpb`, a one-click install that asks for the ADS token. Each GitHub release gets the bundle attached automatically.
+- GitHub Actions: tests on Python 3.10 and 3.13 and a bundle build on every pull request and push to `main`.
+- Student guides in English and Portuguese (`docs/`).
+- README section on sharing the plugin with a research group through a Claude Team or Enterprise plan.
+
 ## 0.3.0 — 2026-09-26
 
 ### Added

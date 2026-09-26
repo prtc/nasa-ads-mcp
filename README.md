@@ -42,6 +42,8 @@ Perfect for astronomers, astrophysicists, and researchers who want their referen
 
 ## Installation
 
+**Students and first-time users:** follow the step-by-step guide, in [English](docs/student-guide.md) or [Portuguese](docs/guia-do-estudante.md).
+
 ### Prerequisites
 
 - **uv**, the Python package manager, which also fetches Python for you if needed ([install instructions](https://docs.astral.sh/uv/getting-started/installation/)). On Linux and macOS:
@@ -57,7 +59,7 @@ The server runs on your own computer, so it works wherever Claude can start loca
 | Where you use Claude | Works? | How to install |
 | :-- | :-- | :-- |
 | Claude Code (terminal, IDE extensions, desktop app's Code tab), on Linux, macOS, or Windows | ✅ | [Option 1: plugin](#option-1-claude-code-plugin-recommended) |
-| Claude Desktop chat (macOS, Windows) | ✅ | [Option 2: manual setup](#option-2-claude-desktop-manual-setup) |
+| Claude Desktop chat (macOS, Windows, Linux beta) | ✅ | [Option 2: one-click bundle](#option-2-claude-desktop-one-click-bundle) |
 | Cowork | Not yet: Cowork doesn't ask for the plugin's token setting | |
 | claude.ai on the web, mobile apps | ❌ These can't run programs on your computer | |
 
@@ -84,7 +86,36 @@ If your organization's Claude plan already provides this plugin, it's installed 
 
 **Already set it up by hand before?** Remove the old entry so Claude doesn't see every tool twice: `claude mcp remove nasa-ads`.
 
-### Option 2: Claude Desktop (manual setup)
+### Sharing with your research group
+
+On a Claude Team or Enterprise plan, an Owner can install the plugin for every member. The organization's plugin sync reads a **private** marketplace repository, so create one for your group (for example, in your group's GitHub organization) with a single file, `.claude-plugin/marketplace.json`, that points at this repository:
+
+```json
+{
+  "name": "pleiad-astronomy",
+  "description": "Claude plugins for the Pleiad Astronomy group",
+  "owner": { "name": "Paula Coelho" },
+  "plugins": [
+    {
+      "name": "nasa-ads",
+      "source": { "source": "github", "repo": "prtc/nasa-ads-mcp" },
+      "description": "Search NASA ADS: papers, metrics, BibTeX export, and your ADS libraries"
+    }
+  ]
+}
+```
+
+Then, in claude.ai, go to **Organization settings → Plugins & skills → Add → Sync from GitHub**, choose that repository, and set **Default access** to **Installed by default**. Members get the plugin in Claude Code as `nasa-ads@synced`, and each one adds their own ADS token. See Anthropic's guide to [syncing plugins from a repository](https://claude.com/docs/plugins/org-sync).
+
+### Option 2: Claude Desktop (one-click bundle)
+
+1. Download [`nasa-ads.mcpb`](https://github.com/prtc/nasa-ads-mcp/releases/latest/download/nasa-ads.mcpb) from the latest release.
+2. Double-click it, drag it into the Claude Desktop window, or go to **Settings → Extensions → Advanced settings → Install Extension…**
+3. Paste your ADS token when Claude Desktop asks for it.
+
+If Claude Desktop reports that it can't find `uv`, install uv (see Prerequisites) and restart it.
+
+### Option 3: Manual setup (Claude Desktop or any MCP client)
 
 1. **Clone this repository:**
 ```bash
@@ -179,9 +210,13 @@ This server implements:
 ### Project Structure
 ```
 nasa-ads-mcp/
+├── .github/workflows/         # Tests on every pull request; builds the .mcpb for each release
 ├── .claude-plugin/
 │   ├── plugin.json            # Claude Code plugin: metadata, token setting, server command
 │   └── marketplace.json       # Lets this repository act as a plugin marketplace
+├── manifest.json              # Claude Desktop bundle (.mcpb) manifest
+├── .mcpbignore                # Files left out of the bundle (never .env)
+├── docs/                      # Student guides (English and Portuguese)
 ├── src/
 │   └── nasa_ads_mcp/
 │       ├── __init__.py
@@ -191,7 +226,9 @@ nasa-ads-mcp/
 ├── test_connection.py         # Manual check against the real ADS API
 ├── .env.example               # Template for API token
 ├── .gitignore
-├── pyproject.toml            # Project configuration
+├── pyproject.toml             # Project configuration
+├── CHANGELOG.md
+├── CITATION.cff               # How to cite this software
 ├── README.md
 └── LICENSE
 ```

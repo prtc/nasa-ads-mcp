@@ -1,7 +1,7 @@
 {
   "name": "nasa-ads",
   "displayName": "NASA ADS",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
   "author": {
     "name": "Paula Coelho",

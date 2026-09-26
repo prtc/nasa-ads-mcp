@@ -293,7 +293,22 @@ def test_versions_match():
     plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
     from nasa_ads_mcp import __version__
 
-    assert pyproject == plugin == __version__
+    bundle = json.loads((ROOT / "manifest.json").read_text())["version"]
+    assert pyproject == plugin == bundle == __version__
+
+
+async def test_bundle_manifest_lists_the_server_tools():
+    """Claude Desktop shows the manifest's tool list at install time, so it must match the server."""
+    manifest = json.loads((ROOT / "manifest.json").read_text())
+    tools = await server.list_tools()
+    assert [t["name"] for t in manifest["tools"]] == [t.name for t in tools]
+    assert manifest["user_config"]["ads_api_token"]["sensitive"] is True
+    assert manifest["server"]["mcp_config"]["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
+
+
+def test_bundle_never_ships_env_files():
+    ignored = (ROOT / ".mcpbignore").read_text().splitlines()
+    assert ".env" in ignored and ".env.*" in ignored
 
 
 def test_plugin_server_points_at_real_files():
