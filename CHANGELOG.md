@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-09-26
+
+### Added
+- Claude Code plugin: install with `claude plugin marketplace add prtc/nasa-ads-mcp` and `claude plugin install nasa-ads@nasa-ads-mcp`. Claude Code asks for the ADS token and keeps it in the system's secure credential store.
+- This repository is also a plugin marketplace, so organizations can list the plugin in their own marketplace and distribute it to members.
+- The server also finds the token in `ADS_DEV_KEY` or `~/.ads/dev_key`, where the `ads` Python package keeps it.
+- Paula Coelho's ORCID in `CITATION.cff`.
+
+### Changed
+- README installation guide: the plugin first, with a table of where the server works.
+
 ## 0.2.0 — 2026-09-26
 
 ### Fixed

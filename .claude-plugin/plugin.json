@@ -1,0 +1,39 @@
+{
+  "name": "nasa-ads",
+  "displayName": "NASA ADS",
+  "version": "0.3.0",
+  "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
+  "author": {
+    "name": "Paula Coelho",
+    "url": "https://github.com/prtc"
+  },
+  "homepage": "https://github.com/prtc/nasa-ads-mcp#readme",
+  "repository": "https://github.com/prtc/nasa-ads-mcp",
+  "license": "MIT",
+  "keywords": ["astronomy", "astrophysics", "nasa-ads", "literature", "bibtex", "citations"],
+  "userConfig": {
+    "ads_api_token": {
+      "type": "string",
+      "title": "NASA ADS API token",
+      "description": "Your personal token from https://ui.adsabs.harvard.edu/user/settings/token. Stored in your system's secure credential store. Leave empty if you keep it in ~/.ads/dev_key.",
+      "sensitive": true
+    }
+  },
+  "mcpServers": {
+    "nasa-ads": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project", "${CLAUDE_PLUGIN_ROOT}",
+        "--locked",
+        "--no-dev",
+        "--quiet",
+        "python", "${CLAUDE_PLUGIN_ROOT}/src/nasa_ads_mcp/server.py"
+      ],
+      "env": {
+        "ADS_API_TOKEN": "${user_config.ads_api_token}",
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv"
+      }
+    }
+  }
+}
