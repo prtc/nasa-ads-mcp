@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it as below. It is a human-AI
+  collaboration: Claude (Anthropic) wrote the code; Paula Coelho conceived,
+  validated and maintains it, and is accountable for it.
+title: NASA ADS MCP Server
+type: software
+authors:
+  - given-names: Paula
+    family-names: Coelho
+    affiliation: Universidade de São Paulo
+  - name: Claude (Anthropic)
+contact:
+  - given-names: Paula
+    family-names: Coelho
+    affiliation: Universidade de São Paulo
+version: 0.2.0
+date-released: 2026-09-26
+license: MIT
+repository-code: https://github.com/prtc/nasa-ads-mcp
+url: https://github.com/prtc/nasa-ads-mcp
+abstract: >-
+  A Model Context Protocol (MCP) server that gives Claude access to the NASA
+  Astrophysics Data System: search papers, metrics, BibTeX export, and ADS
+  libraries.
+keywords:
+  - astronomy
+  - astrophysics
+  - NASA ADS
+  - Model Context Protocol
+  - human-AI collaboration

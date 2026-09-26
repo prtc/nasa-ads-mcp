@@ -15,10 +15,12 @@
 - Every tool now has a title and annotations saying whether it only reads or changes your ADS libraries.
 - API calls are asynchronous (`httpx`), replacing the `ads` and `requests` packages.
 - The MCP SDK is pinned below 2.0, whose server API is incompatible with this code.
+- Authors are now Paula Coelho and Claude (Anthropic); Paula Coelho is the maintainer.
 
 ### Added
 - Automated tests with simulated ADS responses (`uv run pytest`).
-- README sections on data and privacy, and on related projects.
+- README sections on data and privacy, related projects, and how this was made (authorship and CRediT contributions).
+- `CITATION.cff`, so GitHub and Zenodo can cite the software with both authors.
 
 ## 0.1.0 — 2025-11-02
 
