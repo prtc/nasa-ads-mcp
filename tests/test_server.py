@@ -285,7 +285,8 @@ ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 
 
 def test_versions_match():
-    """The plugin only updates for users when its version changes, so keep all three in step."""
+    """Keep every version in step: the plugin only updates for users when its version
+    changes, and GitHub and Zenodo cite the version in CITATION.cff."""
     import re
 
     # A pattern instead of tomllib, which needs Python 3.11+
@@ -294,7 +295,8 @@ def test_versions_match():
     from nasa_ads_mcp import __version__
 
     bundle = json.loads((ROOT / "manifest.json").read_text())["version"]
-    assert pyproject == plugin == bundle == __version__
+    citation = re.search(r"^version: (.+)$", (ROOT / "CITATION.cff").read_text(), re.M).group(1).strip()
+    assert pyproject == plugin == bundle == citation == __version__
 
 
 async def test_bundle_manifest_lists_the_server_tools():

@@ -65,8 +65,9 @@ def _get_token() -> str:
     raise ADSError(
         "No ADS API token found. Get one at "
         "https://ui.adsabs.harvard.edu/user/settings/token, then either enter it "
-        "in the plugin's settings, put ADS_API_TOKEN=<token> in the .env file of "
-        "the nasa-ads-mcp folder, or save it in ~/.ads/dev_key (see README)."
+        "in the plugin's settings, set ADS_API_TOKEN (or ADS_DEV_KEY), for example "
+        "in the .env file of the nasa-ads-mcp folder, or save it in ~/.ads/dev_key "
+        "(see README)."
     )
 
 
