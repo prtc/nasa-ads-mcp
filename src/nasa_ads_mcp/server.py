@@ -28,6 +28,8 @@ logging.basicConfig(
     handlers=_log_handlers,
 )
 logger = logging.getLogger("nasa-ads-mcp")
+# httpx logs every request at INFO level; keep only its warnings
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # API endpoints
 ADS_API_BASE = "https://api.adsabs.harvard.edu/v1"

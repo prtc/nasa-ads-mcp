@@ -10,6 +10,10 @@
 
 ### Changed
 - README installation guide: the plugin first, with a table of where the server works.
+- Quieter logs: no line for every HTTP request.
+
+### Verified against the live ADS API
+- Read counts, ADS-formatted BibTeX, and reading a 633-paper library in full (ADS sends 20 papers per page; version 0.1 showed only the first 20).
 
 ## 0.2.0 — 2026-09-26
 
