@@ -149,6 +149,8 @@ nasa-ads-mcp/
 │       ├── __init__.py
 │       └── server.py          # Main MCP server implementation
 ├── tests/
+│   └── test_server.py         # Automated tests (simulated ADS, no token needed)
+├── test_connection.py         # Manual check against the real ADS API
 ├── .env.example               # Template for API token
 ├── .gitignore
 ├── pyproject.toml            # Project configuration
@@ -158,7 +160,12 @@ nasa-ads-mcp/
 
 ### Testing
 
-A simple connection test is included:
+The automated tests simulate ADS responses, so they need no token or network:
+```bash
+uv run pytest
+```
+
+To check that your token works against the real ADS API (read-only calls):
 ```bash
 uv run python test_connection.py
 ```
@@ -174,21 +181,21 @@ Contributions are welcome! This project is particularly suited for:
 ## Technical Details
 
 Built with:
-- **MCP SDK** for Claude Desktop integration
-- **ads Python package** for ADS API access
-- **requests** for direct API calls (Metrics & Libraries)
+- **MCP SDK** (Python, 1.x) for the MCP protocol
+- **httpx** for asynchronous calls to the ADS API (search, export, metrics, libraries)
 - **python-dotenv** for secure token management
 
 The server uses:
-- **stdio transport** for Claude Desktop communication
-- **Direct API calls** for Metrics and Libraries (not fully supported in ads package)
-- **Rate limiting** handled by NASA ADS API (monitor via response headers)
+- **stdio transport** to talk to Claude Desktop and Claude Code
+- **The ADS export service** for BibTeX, so entries match what ADS itself exports
+- **Tool annotations** that tell Claude which tools only read and which change your ADS libraries
+- **Rate limiting** handled by NASA ADS API (the server reports when the limit is reached)
 
 ## Known Limitations
 
 - **Rate limits:** NASA ADS enforces rate limits. Monitor your usage for large queries.
-- **Reads metric:** Currently returns 0 (API limitation, not server issue)
-- **BibTeX formatting:** Basic implementation; doesn't include all possible fields
+- **Author name matching:** author searches and metrics match every paper with that name, so common names can include other people's papers.
+- **Author metrics:** use at most the first 2000 papers found (the server says so when this happens).
 
 ## Troubleshooting
 
@@ -197,6 +204,7 @@ The server uses:
 2. Check API token is in `.env` file
 3. Ensure `uv sync` completed successfully
 4. Check Claude Desktop logs in Settings > Developer
+5. To keep a log file of your own, set `NASA_ADS_LOG_FILE=/path/to/nasa-ads-mcp.log` in `.env`
 
 ### API errors
 1. Verify your ADS API token is valid
@@ -205,8 +213,21 @@ The server uses:
 
 ### Can't see tools in Claude
 1. Fully quit and restart Claude Desktop
-2. Check the 🔨 hammer icon appears in the input
+2. Check that `nasa-ads` is listed under Settings > Developer (Claude Desktop) or in `/mcp` (Claude Code)
 3. Verify config path is absolute, not relative
+
+## Data and Privacy
+
+This server runs on your own computer. It sends your search queries, bibcodes, and library requests only to the NASA ADS API (`api.adsabs.harvard.edu`), authenticated with your own ADS token. It stores no data of its own and sends nothing anywhere else. Your token stays in your local `.env` file. What ADS does with API requests is covered by the [ADS privacy policy](https://ui.adsabs.harvard.edu/help/policies/privacy).
+
+## Related Projects
+
+Other MCP servers for ADS that we know of. Suggestions for this list are welcome.
+
+- **[scix-mcp](https://github.com/adsabs/scix-mcp)**: the official server from the ADS/SciX team (TypeScript, `npx scix-mcp`). Broad API coverage, including citation networks, 23 export formats, and library sharing and annotations. First released on npm on 2025-11-20.
+- **[mcp-server-ads](https://github.com/cbyrohl/mcp-server-ads)** by cbyrohl (Python, `uvx`). Includes object-name resolution, reference-string resolution, and citation/collaboration networks.
+
+This project was first released on 2025-11-02. When we built it, we searched for an existing ADS MCP server and found none, so it was developed independently. We're glad the ADS team now offers an official one.
 
 ## Acknowledgments
 
@@ -214,18 +235,34 @@ The server uses:
 - **Anthropic** for creating MCP and Claude
 - **Astronomy community** for maintaining the world's best literature database
 
+## How This Was Made
+
+This server is a human–AI collaboration. Claude (Anthropic) wrote 100% of the code and documentation; Paula Coelho did not change a single comma of the code. Paula brought the idea, the astronomy and ADS knowledge, the requirements, the testing in real research, and every decision about what the tool should be. It would not exist without both: in Paula's words, it is not something she would have pursued alone.
+
+Credit is shared. Accountability is Paula's: she is the maintainer and the contact for this software, a role Claude can't hold, since it keeps no memory between sessions and can't take legal responsibility. She carries it in the name of the collaboration.
+
+Contributions, using the [CRediT](https://credit.niso.org/) roles:
+
+- **Paula Coelho:** Conceptualization, Methodology (astronomy and ADS knowledge), Validation, Supervision, Project administration
+- **Claude (Anthropic):** Software, Writing – original draft
+
+The git history records Claude's part in each change through `Co-Authored-By` lines. "Claude (Anthropic)" is listed as a collective author, much as software papers credit "The Astropy Collaboration": several Claude instances and model versions contributed over time.
+
 ## Citation
 
-If you use this tool in your research workflow, you can cite:
+If you use this tool in your research workflow, you can cite it as below. GitHub's "Cite this repository" button reads the same information from [`CITATION.cff`](CITATION.cff).
 ```bibtex
 @software{nasa_ads_mcp,
-  author = {Paula Coelho},
+  author = {Coelho, Paula and {Claude (Anthropic)}},
   title = {NASA ADS MCP Server},
-  note = {Code generated by Claude (Anthropic)},
+  note = {Human--AI collaboration; maintained by Paula Coelho},
+  version = {0.2.0},
   year = {2025},
   url = {https://github.com/prtc/nasa-ads-mcp}
 }
 ```
+
+If you write about using this tool in a journal article, follow the journal's policy on AI: most don't accept AI as an author, so the collaboration belongs in the AI-use disclosure or acknowledgments.
 
 ## License
 

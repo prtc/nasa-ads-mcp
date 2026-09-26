@@ -1,39 +1,38 @@
-"""Quick test of ADS API connection."""
+"""Quick check that the server can reach ADS with your token (makes real, read-only API calls).
 
+Run with: uv run python test_connection.py
+"""
+
+import asyncio
 import os
-from dotenv import load_dotenv
-import ads
+import sys
 
-load_dotenv()
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-# Test API token
-token = os.getenv("ADS_API_TOKEN")
-if not token:
-    print("❌ No ADS_API_TOKEN found in .env")
-    exit(1)
+from nasa_ads_mcp import server  # noqa: E402  (loads .env)
 
-print(f"✓ Found API token: {token[:10]}...")
 
-# Configure ADS
-ads.config.token = token
+async def check() -> None:
+    token = os.getenv("ADS_API_TOKEN")
+    if not token:
+        sys.exit("❌ No ADS_API_TOKEN found (set it in .env)")
+    print("✓ Found API token")
 
-# Test a simple search
-print("\nTesting ADS search...")
-try:
-    papers = ads.SearchQuery(
-        q="stellar populations",
-        fl=["bibcode", "title", "author", "year"],
-        rows=3
-    )
-    
-    print("✓ Search successful! Found papers:")
-    for i, paper in enumerate(papers, 1):
-        print(f"\n{i}. {paper.title[0] if paper.title else 'No title'}")
-        print(f"   Year: {paper.year}")
-        print(f"   Bibcode: {paper.bibcode}")
-    
-    print("\n✅ All tests passed! ADS API is working correctly.")
+    checks = [
+        ("search", server.search_papers("stellar populations", max_results=3)),
+        ("metrics", server.get_paper_metrics(["2005A&A...443..735C"])),
+        ("BibTeX export", server.export_bibtex(["2005A&A...443..735C"])),
+        ("libraries", server.list_libraries()),
+    ]
+    for label, call in checks:
+        try:
+            result = await call
+        except server.ADSError as e:
+            sys.exit(f"\n❌ {label} failed: {e}")
+        print(f"\n✓ {label} works:\n" + result[0].text[:600])
 
-except Exception as e:
-    print(f"\n❌ Error: {e}")
-    exit(1)
+    print("\n✅ All checks passed! ADS API is working correctly.")
+
+
+if __name__ == "__main__":
+    asyncio.run(check())
