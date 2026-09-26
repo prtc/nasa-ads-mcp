@@ -18,8 +18,13 @@ from pydantic import AnyUrl
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging to file (not stderr — stderr shares the stdio pipe with MCP protocol)
+_log_path = "/Users/pcoelho/mcp-servers/nasa-ads-mcp/nasa-ads-mcp.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[logging.FileHandler(os.path.abspath(_log_path))],
+)
 logger = logging.getLogger("nasa-ads-mcp")
 
 # Initialize ADS with token
@@ -803,11 +808,15 @@ async def main():
     
     async with stdio_server() as (read_stream, write_stream):
         logger.info("NASA ADS MCP Server starting...")
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options(),
-        )
+        try:
+            await app.run(
+                read_stream,
+                write_stream,
+                app.create_initialization_options(),
+            )
+        except Exception as e:
+            logger.exception(f"NASA ADS MCP Server crashed: {e}")
+            raise
 
 
 if __name__ == "__main__":
