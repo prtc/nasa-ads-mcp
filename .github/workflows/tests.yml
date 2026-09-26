@@ -1,0 +1,40 @@
+# Runs on every push to main and on every pull request:
+# the automated tests on the oldest and a recent supported Python, and a
+# check that the Claude Desktop bundle (.mcpb) still builds.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 pack . nasa-ads.mcpb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nasa-ads-mcpb
+          path: nasa-ads.mcpb

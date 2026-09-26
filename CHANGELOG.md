@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 — 2026-09-26
+
+### Added
+- Claude Desktop bundle: `manifest.json` builds `nasa-ads.mcpb`, a one-click install that asks for the ADS token. Each GitHub release gets the bundle attached automatically.
+- GitHub Actions: tests on Python 3.10 and 3.13 and a bundle build on every pull request and push to `main`.
+- Student guides in English and Portuguese (`docs/`).
+- README section on sharing the plugin with a research group through a Claude Team or Enterprise plan.
+
+## 0.3.0 — 2026-09-26
+
+### Added
+- Claude Code plugin: install with `claude plugin marketplace add prtc/nasa-ads-mcp` and `claude plugin install nasa-ads@nasa-ads-mcp`. Claude Code asks for the ADS token and keeps it in the system's secure credential store.
+- This repository is also a plugin marketplace, so organizations can list the plugin in their own marketplace and distribute it to members.
+- The server also finds the token in `ADS_DEV_KEY` or `~/.ads/dev_key`, where the `ads` Python package keeps it.
+- Paula Coelho's ORCID in `CITATION.cff`.
+
+### Changed
+- README installation guide: the plugin first, with a table of where the server works.
+- Quieter logs: no line for every HTTP request.
+
+### Verified against the live ADS API
+- Read counts, ADS-formatted BibTeX, and reading a 633-paper library in full (ADS sends 20 papers per page; version 0.1 showed only the first 20).
+
 ## 0.2.0 — 2026-09-26
 
 ### Fixed

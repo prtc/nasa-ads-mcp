@@ -1,0 +1,31 @@
+# When a release is published on GitHub, build the Claude Desktop bundle and
+# attach it to the release as nasa-ads.mcpb, so this link always serves the
+# newest one: https://github.com/prtc/nasa-ads-mcp/releases/latest/download/nasa-ads.mcpb
+name: Release bundle
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  mcpb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Check that the release tag matches the manifest version
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match manifest.json version $version"
+            exit 1
+          fi
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 pack . nasa-ads.mcpb
+      - run: gh release upload "$GITHUB_REF_NAME" nasa-ads.mcpb --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

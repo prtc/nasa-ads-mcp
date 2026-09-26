@@ -1,0 +1,15 @@
+{
+  "name": "nasa-ads-mcp",
+  "description": "NASA ADS tools for Claude, by Paula Coelho and Claude (Anthropic)",
+  "owner": {
+    "name": "Paula Coelho",
+    "url": "https://github.com/prtc"
+  },
+  "plugins": [
+    {
+      "name": "nasa-ads",
+      "source": "./",
+      "description": "Search NASA ADS: papers, metrics, BibTeX export, and your ADS libraries"
+    }
+  ]
+}

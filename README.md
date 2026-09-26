@@ -42,14 +42,80 @@ Perfect for astronomers, astrophysicists, and researchers who want their referen
 
 ## Installation
 
+**Students and first-time users:** follow the step-by-step guide, in [English](docs/student-guide.md) or [Portuguese](docs/guia-do-estudante.md).
+
 ### Prerequisites
 
-- **Claude Desktop** installed ([download here](https://claude.ai/download))
-- **Python 3.10+** 
-- **uv** package manager ([install here](https://github.com/astral-sh/uv))
-- **NASA ADS API token** ([get yours here](https://ui.adsabs.harvard.edu/user/settings/token))
+- **uv**, the Python package manager, which also fetches Python for you if needed ([install instructions](https://docs.astral.sh/uv/getting-started/installation/)). On Linux and macOS:
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **A NASA ADS API token**, free with an ADS account ([get yours here](https://ui.adsabs.harvard.edu/user/settings/token))
 
-### Setup
+### Where it works
+
+The server runs on your own computer, so it works wherever Claude can start local programs:
+
+| Where you use Claude | Works? | How to install |
+| :-- | :-- | :-- |
+| Claude Code (terminal, IDE extensions, desktop app's Code tab), on Linux, macOS, or Windows | ✅ | [Option 1: plugin](#option-1-claude-code-plugin-recommended) |
+| Claude Desktop chat (macOS, Windows, Linux beta) | ✅ | [Option 2: one-click bundle](#option-2-claude-desktop-one-click-bundle) |
+| Cowork | Not yet: Cowork doesn't ask for the plugin's token setting | |
+| claude.ai on the web, mobile apps | ❌ These can't run programs on your computer | |
+
+### Option 1: Claude Code plugin (recommended)
+
+If your organization's Claude plan already provides this plugin, it's installed for you: skip to step 3.
+
+1. **Add this repository as a plugin marketplace** (a catalog Claude Code can install from):
+   ```bash
+   claude plugin marketplace add prtc/nasa-ads-mcp
+   ```
+2. **Install the plugin:**
+   ```bash
+   claude plugin install nasa-ads@nasa-ads-mcp
+   ```
+3. **Enter your ADS token** when Claude Code asks for it. If it didn't ask, or to change it later, run this inside a Claude Code session:
+   ```
+   /plugin configure nasa-ads@nasa-ads-mcp
+   ```
+   The token goes into your system's secure credential store. Alternatively, save it in `~/.ads/dev_key` (the file the `ads` Python package uses), and the server will find it there.
+4. **Start a new Claude Code session** and run `/mcp`: `plugin:nasa-ads:nasa-ads` should show as connected. The first start takes a few extra seconds while uv installs the server's dependencies.
+
+**Updating:** `claude plugin marketplace update nasa-ads-mcp`, then `claude plugin update nasa-ads@nasa-ads-mcp`.
+
+**Already set it up by hand before?** Remove the old entry so Claude doesn't see every tool twice: `claude mcp remove nasa-ads`.
+
+### Sharing with your research group
+
+On a Claude Team or Enterprise plan, an Owner can install the plugin for every member. The organization's plugin sync reads a **private** marketplace repository, so create one for your group (for example, in your group's GitHub organization) with a single file, `.claude-plugin/marketplace.json`, that points at this repository:
+
+```json
+{
+  "name": "pleiad-astronomy",
+  "description": "Claude plugins for the Pleiad Astronomy group",
+  "owner": { "name": "Paula Coelho" },
+  "plugins": [
+    {
+      "name": "nasa-ads",
+      "source": { "source": "github", "repo": "prtc/nasa-ads-mcp" },
+      "description": "Search NASA ADS: papers, metrics, BibTeX export, and your ADS libraries"
+    }
+  ]
+}
+```
+
+Then, in claude.ai, go to **Organization settings → Plugins & skills → Add → Sync from GitHub**, choose that repository, and set **Default access** to **Installed by default**. Members get the plugin in Claude Code as `nasa-ads@synced`, and each one adds their own ADS token. See Anthropic's guide to [syncing plugins from a repository](https://claude.com/docs/plugins/org-sync).
+
+### Option 2: Claude Desktop (one-click bundle)
+
+1. Download [`nasa-ads.mcpb`](https://github.com/prtc/nasa-ads-mcp/releases/latest/download/nasa-ads.mcpb) from the latest release.
+2. Double-click it, drag it into the Claude Desktop window, or go to **Settings → Extensions → Advanced settings → Install Extension…**
+3. Paste your ADS token when Claude Desktop asks for it.
+
+If Claude Desktop reports that it can't find `uv`, install uv (see Prerequisites) and restart it.
+
+### Option 3: Manual setup (Claude Desktop or any MCP client)
 
 1. **Clone this repository:**
 ```bash
@@ -102,7 +168,7 @@ Replace `/absolute/path/to/nasa-ads-mcp` with the actual path to where you clone
 
 5. **Restart Claude Desktop**
 
-Look for the 🔨 hammer icon in the input box to confirm the server is connected.
+Check that `nasa-ads` is listed under Settings > Developer.
 
 ## Usage Examples
 
@@ -144,6 +210,13 @@ This server implements:
 ### Project Structure
 ```
 nasa-ads-mcp/
+├── .github/workflows/         # Tests on every pull request; builds the .mcpb for each release
+├── .claude-plugin/
+│   ├── plugin.json            # Claude Code plugin: metadata, token setting, server command
+│   └── marketplace.json       # Lets this repository act as a plugin marketplace
+├── manifest.json              # Claude Desktop bundle (.mcpb) manifest
+├── .mcpbignore                # Files left out of the bundle (never .env)
+├── docs/                      # Student guides (English and Portuguese)
 ├── src/
 │   └── nasa_ads_mcp/
 │       ├── __init__.py
@@ -153,15 +226,18 @@ nasa-ads-mcp/
 ├── test_connection.py         # Manual check against the real ADS API
 ├── .env.example               # Template for API token
 ├── .gitignore
-├── pyproject.toml            # Project configuration
+├── pyproject.toml             # Project configuration
+├── CHANGELOG.md
+├── CITATION.cff               # How to cite this software
 ├── README.md
 └── LICENSE
 ```
 
 ### Testing
 
-The automated tests simulate ADS responses, so they need no token or network:
+The automated tests simulate ADS responses, so they need no token or network. Run `uv sync` first: it installs pytest along with the other development tools (if `uv run pytest` says "No such file or directory", this step is missing, or `uv` needs updating with `uv self update`).
 ```bash
+uv sync
 uv run pytest
 ```
 

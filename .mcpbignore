@@ -1,0 +1,19 @@
+# Keep the .mcpb bundle to what the server needs to run.
+# Never ship a .env: it may hold someone's ADS token.
+.env
+.env.*
+!.env.example
+.git/
+.github/
+.venv/
+.claude-plugin/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.log
+*.mcpb
+tests/
+docs/
+test_connection.py
+CITATION.cff
+CHANGELOG.md

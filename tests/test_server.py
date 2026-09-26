@@ -46,10 +46,36 @@ def text_of(result):
 
 # --- token and errors ---------------------------------------------------------
 
-async def test_missing_token_gives_helpful_error(monkeypatch):
+@pytest.fixture
+def no_token(monkeypatch, tmp_path):
+    """No token anywhere: no environment variables and no ~/.ads/dev_key."""
     monkeypatch.delenv("ADS_API_TOKEN", raising=False)
-    with pytest.raises(server.ADSError, match="ADS_API_TOKEN is not set"):
+    monkeypatch.delenv("ADS_DEV_KEY", raising=False)
+    monkeypatch.setattr(server, "ADS_DEV_KEY_FILE", tmp_path / "dev_key")
+    return tmp_path / "dev_key"
+
+
+async def test_missing_token_gives_helpful_error(no_token):
+    with pytest.raises(server.ADSError, match="No ADS API token found"):
         await server.search_papers("stellar populations")
+
+
+def test_unset_plugin_option_placeholder_is_not_a_token(no_token, monkeypatch):
+    monkeypatch.setenv("ADS_API_TOKEN", "${user_config.ads_api_token}")
+    with pytest.raises(server.ADSError):
+        server._get_token()
+
+
+def test_token_from_ads_dev_key_file(no_token, monkeypatch):
+    no_token.write_text("file-token\n")
+    monkeypatch.setenv("ADS_API_TOKEN", "")  # a plugin option left empty
+    assert server._get_token() == "file-token"
+
+
+def test_environment_token_wins_over_file(no_token, monkeypatch):
+    no_token.write_text("file-token")
+    monkeypatch.setenv("ADS_DEV_KEY", "env-token")
+    assert server._get_token() == "env-token"
 
 
 async def test_token_is_sent_as_bearer(ads):
@@ -251,3 +277,48 @@ async def test_successful_call_is_not_an_error(ads):
     async with create_connected_server_and_client_session(server.app) as client:
         result = await client.call_tool("search_papers", {"query": "x"})
     assert result.isError is False
+
+
+# --- packaging -----------------------------------------------------------------
+
+ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+
+
+def test_versions_match():
+    """Keep every version in step: the plugin only updates for users when its version
+    changes, and GitHub and Zenodo cite the version in CITATION.cff."""
+    import re
+
+    # A pattern instead of tomllib, which needs Python 3.11+
+    pyproject = re.search(r'^version = "(.+)"', (ROOT / "pyproject.toml").read_text(), re.M).group(1)
+    plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
+    from nasa_ads_mcp import __version__
+
+    bundle = json.loads((ROOT / "manifest.json").read_text())["version"]
+    citation = re.search(r"^version: (.+)$", (ROOT / "CITATION.cff").read_text(), re.M).group(1).strip()
+    assert pyproject == plugin == bundle == citation == __version__
+
+
+async def test_bundle_manifest_lists_the_server_tools():
+    """Claude Desktop shows the manifest's tool list at install time, so it must match the server."""
+    manifest = json.loads((ROOT / "manifest.json").read_text())
+    tools = await server.list_tools()
+    assert [t["name"] for t in manifest["tools"]] == [t.name for t in tools]
+    assert manifest["user_config"]["ads_api_token"]["sensitive"] is True
+    assert manifest["server"]["mcp_config"]["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
+
+
+def test_bundle_never_ships_env_files():
+    ignored = (ROOT / ".mcpbignore").read_text().splitlines()
+    assert ".env" in ignored and ".env.*" in ignored
+
+
+def test_plugin_server_points_at_real_files():
+    plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
+    server_config = plugin["mcpServers"]["nasa-ads"]
+    paths = [a.replace("${CLAUDE_PLUGIN_ROOT}", str(ROOT)) for a in server_config["args"] if "${CLAUDE_PLUGIN_ROOT}" in a]
+    assert paths and all(__import__("os").path.exists(p) for p in paths)
+    assert "--locked" in server_config["args"]
+    assert server_config["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
+    assert "ads_api_token" in plugin["userConfig"]
+    assert plugin["userConfig"]["ads_api_token"]["sensitive"] is True

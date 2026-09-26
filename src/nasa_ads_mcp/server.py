@@ -28,6 +28,8 @@ logging.basicConfig(
     handlers=_log_handlers,
 )
 logger = logging.getLogger("nasa-ads-mcp")
+# httpx logs every request at INFO level; keep only its warnings
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # API endpoints
 ADS_API_BASE = "https://api.adsabs.harvard.edu/v1"
@@ -44,15 +46,29 @@ class ADSError(Exception):
     """An error talking to ADS, with a message meant for the user."""
 
 
+# Where the `ads` Python package keeps the token; many astronomers already have it
+ADS_DEV_KEY_FILE = Path("~/.ads/dev_key")
+
+
 def _get_token() -> str:
-    token = os.getenv("ADS_API_TOKEN")
-    if not token:
-        raise ADSError(
-            "ADS_API_TOKEN is not set. Get a token at "
-            "https://ui.adsabs.harvard.edu/user/settings/token and put it in the "
-            ".env file of the nasa-ads-mcp folder (see README)."
-        )
-    return token
+    """Find the ADS token: ADS_API_TOKEN, then ADS_DEV_KEY, then ~/.ads/dev_key."""
+    for name in ("ADS_API_TOKEN", "ADS_DEV_KEY"):
+        token = (os.getenv(name) or "").strip()
+        # A plugin option the user left unset can arrive as the literal placeholder
+        if token and not token.startswith("${"):
+            return token
+    key_file = ADS_DEV_KEY_FILE.expanduser()
+    if key_file.is_file():
+        token = key_file.read_text().strip()
+        if token:
+            return token
+    raise ADSError(
+        "No ADS API token found. Get one at "
+        "https://ui.adsabs.harvard.edu/user/settings/token, then either enter it "
+        "in the plugin's settings, set ADS_API_TOKEN (or ADS_DEV_KEY), for example "
+        "in the .env file of the nasa-ads-mcp folder, or save it in ~/.ads/dev_key "
+        "(see README)."
+    )
 
 
 async def _api(
@@ -757,8 +773,10 @@ async def main():
     """Run the MCP server."""
     from mcp.server.stdio import stdio_server
 
-    if not os.getenv("ADS_API_TOKEN"):
-        logger.warning("ADS_API_TOKEN is not set; tools will return an error until it is.")
+    try:
+        _get_token()
+    except ADSError:
+        logger.warning("No ADS token found; tools will return an error until one is set.")
 
     async with stdio_server() as (read_stream, write_stream):
         logger.info("NASA ADS MCP Server starting...")
