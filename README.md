@@ -229,6 +229,7 @@ nasa-ads-mcp/
 ├── .gitignore
 ├── pyproject.toml             # Project configuration
 ├── CHANGELOG.md
+├── ROADMAP.md                 # Plans, known issues, and the release process
 ├── CITATION.cff               # How to cite this software
 ├── README.md
 └── LICENSE
@@ -249,11 +250,7 @@ uv run python test_connection.py
 
 ### Contributing
 
-Contributions are welcome! This project is particularly suited for:
-- Adding more ADS API endpoints
-- Improving error handling
-- Enhancing citation formatting
-- Adding more metrics visualizations
+Contributions are welcome! [ROADMAP.md](ROADMAP.md) lists what's planned next, the known issues, and how releases work.
 
 ## Technical Details
 
