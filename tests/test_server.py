@@ -322,3 +322,11 @@ def test_plugin_server_points_at_real_files():
     assert server_config["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
     assert "ads_api_token" in plugin["userConfig"]
     assert plugin["userConfig"]["ads_api_token"]["sensitive"] is True
+
+
+def test_bundle_icons_exist():
+    manifest = json.loads((ROOT / "manifest.json").read_text())
+    paths = [manifest["icon"]] + [icon["src"] for icon in manifest["icons"]]
+    assert {icon["theme"] for icon in manifest["icons"]} == {"light", "dark"}
+    for path in paths:
+        assert (ROOT / path).is_file(), path

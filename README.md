@@ -215,6 +215,7 @@ nasa-ads-mcp/
 │   ├── plugin.json            # Claude Code plugin: metadata, token setting, server command
 │   └── marketplace.json       # Lets this repository act as a plugin marketplace
 ├── manifest.json              # Claude Desktop bundle (.mcpb) manifest
+├── assets/                    # Icons (Pleiad logo by Ingrid Beloto; not MIT-licensed)
 ├── .mcpbignore                # Files left out of the bundle (never .env)
 ├── docs/                      # Student guides (English and Portuguese)
 ├── src/
@@ -295,6 +296,10 @@ The server uses:
 ## Data and Privacy
 
 This server runs on your own computer. It sends your search queries, bibcodes, and library requests only to the NASA ADS API (`api.adsabs.harvard.edu`), authenticated with your own ADS token. It stores no data of its own and sends nothing anywhere else. Your token stays in your local `.env` file. What ADS does with API requests is covered by the [ADS privacy policy](https://ui.adsabs.harvard.edu/help/policies/privacy).
+
+## Icon
+
+The icon is the logo of the [Pleiad Astronomy](https://pleiad-astronomy.github.io) group, **designed by Ingrid Beloto**, in light- and dark-theme versions made in the group's [visual-identity](https://github.com/pleiad-astronomy/visual-identity) repository. The MIT license covers this project's code and documentation, not the logo: the files in `assets/` belong to the Pleiad group.
 
 ## Related Projects
 
