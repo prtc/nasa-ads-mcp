@@ -2,6 +2,8 @@
 
 What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.4.1 (September 2026).
 
+The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
+
 ## Where things stand
 
 - **Version 0.4.1** is released: a Claude Code plugin, a Claude Desktop bundle (`nasa-ads.mcpb`, attached to each release), automated tests, and student guides in English and Portuguese.
@@ -17,9 +19,22 @@ What's next for this project, what's known to be unfinished, and how releases wo
    - citations and references of a paper (dedicated tools, easier for Claude than the operators);
    - export in other ADS formats, especially AASTeX (for AAS journals) and RIS;
    - resolve a free-text reference string to a bibcode (to check a manuscript's bibliography);
-   - remove papers from a library.
+   - remove papers from a library;
+   - look up a paper by DOI or arXiv ID as well as by bibcode (ADS's `identifier:` field accepts all three), probably in `get_paper_details`.
 4. **Author disambiguation:** author metrics match names, not people. Consider an ORCID option (`orcid:` in ADS queries) for `get_author_metrics`.
 5. **Default sort:** `search_papers` sorts by date; relevance may suit topical searches better. Try both on real questions before changing.
+
+## Ideas backlog
+
+Good ideas not yet scheduled, most from the November 2025 list. Pick by what users actually ask for.
+
+- **Search:** papers by affiliation or institution (`aff:`, `inst:`); the Journals API.
+- **Metrics:** citation time series (the metrics API already returns histograms); comparing periods; exporting metrics to CSV.
+- **Export:** more formats through the ADS export service, which also offers EndNote, RIS, and custom citation styles.
+- **Libraries:** rename a library, update its description, export a whole library as BibTeX. Deleting a library is destructive: annotate the tool with `destructiveHint: true` and make the tool description ask Claude to confirm with the user first.
+- **Errors and speed:** suggestions when a search finds nothing; retries for transient ADS failures; caching papers that are fetched often.
+- **Documentation:** real-world workflow examples in the README (a literature review, tracking your own citations, building a manuscript's references), which may become skills (Move 4); a `CONTRIBUTING.md` and issue templates; badges.
+- **Neighbours:** complementary servers for arXiv, SIMBAD, and NED, or links to existing ones (mcp-server-ads already resolves object names through SIMBAD/NED); connections to tools like TOPCAT or DS9.
 
 ## Then: skills for the group (Move 4)
 
