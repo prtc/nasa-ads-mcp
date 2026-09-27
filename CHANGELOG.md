@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-09-27
+
+### Added
+- Claude Desktop bundle icons, in light- and dark-theme versions: the logo of the Pleiad Astronomy group, designed by Ingrid Beloto. The logo is not covered by the MIT license.
+
 ## 0.4.0 — 2026-09-26
 
 ### Added

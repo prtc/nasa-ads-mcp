@@ -299,6 +299,15 @@ def test_versions_match():
     assert pyproject == plugin == bundle == citation == __version__
 
 
+def test_citation_date_matches_changelog():
+    """CITATION.cff's release date must be the date of the newest changelog entry."""
+    import re
+
+    cited = re.search(r"^date-released: (\S+)", (ROOT / "CITATION.cff").read_text(), re.M).group(1)
+    newest = re.search(r"^## \S+ — (\d{4}-\d{2}-\d{2})", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
+    assert cited == newest
+
+
 async def test_bundle_manifest_lists_the_server_tools():
     """Claude Desktop shows the manifest's tool list at install time, so it must match the server."""
     manifest = json.loads((ROOT / "manifest.json").read_text())
@@ -322,3 +331,11 @@ def test_plugin_server_points_at_real_files():
     assert server_config["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
     assert "ads_api_token" in plugin["userConfig"]
     assert plugin["userConfig"]["ads_api_token"]["sensitive"] is True
+
+
+def test_bundle_icons_exist():
+    manifest = json.loads((ROOT / "manifest.json").read_text())
+    paths = [manifest["icon"]] + [icon["src"] for icon in manifest["icons"]]
+    assert {icon["theme"] for icon in manifest["icons"]} == {"light", "dark"}
+    for path in paths:
+        assert (ROOT / path).is_file(), path
