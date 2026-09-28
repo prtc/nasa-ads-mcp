@@ -1,6 +1,6 @@
 # NASA ADS MCP Server
 
-A Model Context Protocol (MCP) server that provides seamless access to the NASA Astrophysics Data System (ADS) directly within Claude. Search papers, track citations, manage libraries, and export references—all through natural language conversation.
+A Model Context Protocol (MCP) server that provides seamless access to the NASA Astrophysics Data System (ADS) directly within Claude. Search papers, track citations, manage libraries, and export references — all through natural language conversation.
 
 **License:** MIT
 
@@ -315,9 +315,7 @@ This project was first released on 2025-11-02. When we built it, we searched for
 
 ## How This Was Made
 
-This server is a human–AI collaboration. Claude (Anthropic) wrote 100% of the code and documentation; Paula Coelho did not change a single comma of the code. Paula brought the idea, the astronomy and ADS knowledge, the requirements, the testing in real research, and every decision about what the tool should be. It would not exist without both: in Paula's words, it is not something she would have pursued alone.
-
-Credit is shared. Accountability is Paula's: she is the maintainer and the contact for this software, a role Claude can't hold, since it keeps no memory between sessions and can't take legal responsibility. She carries it in the name of the collaboration.
+This server is a human–AI collaboration. Claude (Anthropic) wrote 100% of the code and documentation; Paula Coelho did not change a single comma of the code. Paula brought the idea, the astronomy and ADS knowledge, the requirements, the testing in real research, and every decision about what the tool should be. It would not exist without both: in Paula's words, it is not something she would have pursued alone.Credit is shared. Accountability is Paula's, she carries it in the name of the collaboration.
 
 Contributions, using the [CRediT](https://credit.niso.org/) roles:
 
@@ -351,4 +349,3 @@ MIT License - see LICENSE file for details.
 **Questions or Issues?** Open an issue on GitHub or contact through the repository.
 
 **Want to learn more about MCP?** Visit [modelcontextprotocol.io](https://modelcontextprotocol.io)
-
