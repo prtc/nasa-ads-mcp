@@ -213,6 +213,16 @@ def test_clean_turns_ads_html_into_latex():
     assert server._clean("A<SUP>2</SUP>Π, 1.8 μm, α-enhanced") == "A$^{2}$Π, 1.8 μm, α-enhanced"
 
 
+def test_clean_decodes_entities_last():
+    """ADS sends markup as raw tags and escapes the text's own < and > (seen in
+    real abstracts). Decoding entities first would turn these into tags and
+    delete them."""
+    assert server._clean("more oblate (&lt;q&gt; ~ 0.8)") == "more oblate (<q> ~ 0.8)"
+    assert server._clean("range 0.6 &lt;z&lt; 1.3 within R&lt;R<SUB>vir</SUB>") == (
+        "range 0.6 <z< 1.3 within R<R$_{vir}$"
+    )
+
+
 async def test_search_titles_are_cleaned(ads):
     ads(lambda r: search_response([{"bibcode": "b1", "title": ["The CO-to-H<SUB>2</SUB> Conversion Factor"]}]))
     assert "The CO-to-H$_{2}$ Conversion Factor" in text_of(await server.search_papers("x"))
