@@ -164,7 +164,31 @@ async def test_search_papers_collection_filter_says_what_it_left_out(ads):
     text = text_of(await server.search_papers('author:"Silva, A."', collection="astronomy"))
     assert fake.requests[0].url.params["fq"] == "collection:astronomy"
     assert fake.requests[1].url.params["q"] == 'author:"Silva, A."'
-    assert "448 of 8,132" in text and "collection='all' includes the other 7,684" in text
+    assert "Filter: collection:astronomy" in text
+    assert "448 of 8,132" in text and "the other 7,684 are left out" in text
+    assert "collection='all' includes other collections" in text
+
+
+async def test_search_papers_warns_when_a_field_reaches_one_word(ads):
+    ads(lambda r: search_response([{"bibcode": "b1", "title": ["T"]}], num_found=1087))
+    text = text_of(await server.search_papers("title:Stellar populations: a review"))
+    assert "title: applies only to 'Stellar'" in text
+    assert "title:(Stellar populations a review)" in text
+
+
+def test_field_scope_hint_only_for_the_trap():
+    hint = server._field_scope_hint
+    assert hint('author:Coelho Paula year:2020') is not None
+    assert 'author:"Coelho Paula"' in hint('author:Coelho Paula year:2020')
+    for fine in (
+        'author:"Coelho, P" year:2020',
+        "title:(stellar populations) abs:x year:2020",
+        'abs:"dark matter" halo',
+        "title:galaxy -cluster",
+        "title:galaxy AND year:2020",
+        "stellar populations",
+    ):
+        assert hint(fine) is None, fine
 
 
 async def test_unknown_collection_is_an_error(ads):
@@ -366,8 +390,56 @@ async def test_author_metrics_notes_truncation(ads):
     assert json.loads(fake.requests[2].content) == {"bibcodes": ["a", "b"]}
     assert "ADS found 2500 papers" in text
     # the h-index never silently disagrees with ADS's web page
-    assert "2,500 of 9,000" in text and "counts all collections" in text
+    assert "2,500 of 9,000" in text and "applies none of these filters" in text
     assert "h-index: 2" in text
+
+
+async def test_author_metrics_for_a_cv(ads):
+    def handler(request):
+        if request.url.path == "/v1/search/query":
+            if "fq" in request.url.params:
+                return search_response([{"bibcode": "a"}], num_found=72)
+            return search_response([], num_found=164)
+        return httpx.Response(200, json=METRICS)
+
+    fake = ads(handler)
+    text = text_of(await server.get_author_metrics(
+        "Coelho, P", orcid="0000-0003-1846-4826", max_authors=20, refereed_only=True, position="1-3",
+    ))
+    params = fake.requests[0].url.params
+    assert params["q"] == 'pos(author:"Coelho, P", 1, 3) orcid:0000-0003-1846-4826'
+    assert params["fq"] == "collection:astronomy AND author_count:[1 TO 20] AND property:refereed"
+    assert "Filters: collection:astronomy, at most 20 authors, refereed only" in text
+    assert "72 of 164" in text and "the other 92 are left out" in text
+
+
+def test_author_position():
+    query = server._author_query
+    assert query("Coelho, P", position="2") == 'pos(author:"Coelho, P", 2)'
+    assert query("Coelho, P", position=1) == 'pos(author:"Coelho, P", 1)'
+    assert query("Coelho, P", position=" 1 - 3 ") == 'pos(author:"Coelho, P", 1, 3)'
+    assert query("Coelho, P", position="2-2") == 'pos(author:"Coelho, P", 2)'
+    assert query("Coelho, P", position="") == 'author:"Coelho, P"'
+    for bad in ("second", "0", 0, "2-", "3-1", "1-0"):
+        with pytest.raises(server.ADSError, match="position must be"):
+            query("Coelho, P", position=bad)
+
+
+async def test_bad_max_authors_is_an_error(ads):
+    ads(lambda r: search_response([]))
+    with pytest.raises(server.ADSError, match="max_authors"):
+        await server.get_author_papers("Coelho, P", max_authors=0)
+
+
+async def test_filter_note_with_one_paper_left_out(ads):
+    def handler(request):
+        if "fq" in request.url.params:
+            return search_response([{"bibcode": "b1", "title": ["T"]}], num_found=32)
+        return search_response([], num_found=33)
+
+    ads(handler)
+    text = text_of(await server.get_author_papers("Coelho, P", position="2"))
+    assert "32 of 33" in text and "the other one is left out" in text
 
 
 async def test_author_metrics_without_filter(ads):
@@ -484,6 +556,18 @@ async def test_new_parameters_reach_the_tools(ads):
     assert details.isError is False and "Requested as" in details.content[0].text
     search = fake.requests[1].url.params
     assert search["start"] == "20" and search["fq"] == "collection:physics"
+
+
+async def test_author_options_reach_the_tools(ads):
+    fake = ads(lambda r: search_response([{"bibcode": "a", "title": ["T"]}]))
+    async with create_connected_server_and_client_session(server.app) as client:
+        await client.call_tool("get_author_papers", {
+            "author": "Coelho, P", "position": "2", "max_authors": 20,
+            "refereed_only": True, "collection": "all",
+        })
+    params = fake.requests[0].url.params
+    assert params["q"] == 'pos(author:"Coelho, P", 2)'
+    assert params["fq"] == "author_count:[1 TO 20] AND property:refereed"
 
 
 # --- packaging -----------------------------------------------------------------

@@ -1,13 +1,13 @@
 # Roadmap
 
-What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.5.0 (October 2026).
+What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.5.1 (October 2026).
 
 The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
 
 ## Where things stand
 
 - **Version 0.4.1** is released: a Claude Code plugin, a Claude Desktop bundle (`nasa-ads.mcpb`, attached to each release), automated tests, and student guides in English and Portuguese.
-- **Version 0.5.0** answers the first day of intensive real use (October 2026): lookups by any identifier (old bibcodes, DOIs, arXiv IDs), batch paper details, reference fields in results, LaTeX-style sub/superscripts, paging, a collection filter that always says what it removed, ORCID and affiliation for the author tools, and ADS query syntax in the search tool's description. See `CHANGELOG.md`.
+- **Version 0.5.0** answers the first day of intensive real use (October 2026): lookups by any identifier (old bibcodes, DOIs, arXiv IDs), batch paper details, reference fields in results, LaTeX-style sub/superscripts, paging, a collection filter that always says what it removed, ORCID and affiliation for the author tools, and ADS query syntax in the search tool's description. **0.5.1**, the same day, added author position (`pos()`), `max_authors` and `refereed_only` for CV metrics, and a warning when a search field reaches only one word. See `CHANGELOG.md`.
 - **Pleiad Astronomy** (the Claude Team organization) syncs the plugin from the private repository `pleiad-astronomy/plugins`, with default access "Installed by default".
 - **Checked against the live ADS API:** search, metrics (including reads), BibTeX export, and reading a 633-paper library in full.
 - **Not yet checked in real use:** the `.mcpb` bundle in an actual Claude Desktop, and whether Claude Code asks for the ADS token when the plugin arrives through the Team sync (it loads as `nasa-ads@synced`). Confirm both with the first students.
@@ -21,7 +21,7 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
    - export in other ADS formats, especially AASTeX (for AAS journals) and RIS;
    - resolve a free-text reference string to a bibcode (to check a manuscript's bibliography);
    - remove papers from a library.
-4. **Author disambiguation:** 0.5.0 added `orcid`, `affiliation` and a default astronomy `collection` to the author tools. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; ADS's `pos()` operator could tie an affiliation to the right author.
+4. **Author disambiguation:** 0.5.0 and 0.5.1 added `orcid`, `affiliation`, `position`, `max_authors`, `refereed_only` and a default astronomy `collection` to the author tools. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; `aff:` matches any author's affiliation, and tying it to one author would need `pos()` at the same position for both, which works only for a fixed position.
 5. **Default sort:** `search_papers` sorts by date; relevance may suit topical searches better. Try both on real questions before changing.
 
 ## Ideas backlog

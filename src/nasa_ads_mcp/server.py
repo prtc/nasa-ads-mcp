@@ -207,26 +207,50 @@ def _reference(doc: dict[str, Any]) -> str:
 COLLECTIONS = ["astronomy", "physics", "earthscience", "general", "all"]
 
 
-def _collection_filter(collection: str | None) -> str | None:
-    if not collection or collection == "all":
-        return None
-    if collection not in COLLECTIONS:
-        raise ADSError(f"Unknown collection '{collection}'. Use one of: {', '.join(COLLECTIONS)}.")
-    return f"collection:{collection}"
+def _filters(
+    collection: str | None,
+    max_authors: int | None = None,
+    refereed_only: bool = False,
+) -> list[tuple[str, str]]:
+    """The filters asked for, as (ADS filter query, description for the result)."""
+    filters = []
+    if collection and collection != "all":
+        if collection not in COLLECTIONS:
+            raise ADSError(f"Unknown collection '{collection}'. Use one of: {', '.join(COLLECTIONS)}.")
+        filters.append((f"collection:{collection}", f"collection:{collection}"))
+    if max_authors is not None:
+        try:
+            limit = int(max_authors)
+        except (TypeError, ValueError):
+            raise ADSError(f"max_authors must be a whole number, not '{max_authors}'.") from None
+        if limit < 1:
+            raise ADSError("max_authors must be at least 1.")
+        filters.append((f"author_count:[1 TO {limit}]", f"at most {limit} authors"))
+    if refereed_only:
+        filters.append(("property:refereed", "refereed only"))
+    return filters
 
 
-async def _filter_note(q: str, collection: str | None, num_found: int) -> str | None:
-    """Say what a collection filter left out, so its effect is never silent."""
-    fq = _collection_filter(collection)
-    if fq is None:
+def _fq(filters: list[tuple[str, str]]) -> str | None:
+    return " AND ".join(query for query, _ in filters) or None
+
+
+async def _filter_note(q: str, filters: list[tuple[str, str]], num_found: int) -> str | None:
+    """Say what the filters left out, so their effect is never silent."""
+    if not filters:
         return None
+    label = ("Filter: " if len(filters) == 1 else "Filters: ") + ", ".join(d for _, d in filters)
     total = (await _search(q=q, fl=["bibcode"], rows=0)).get("numFound", 0)
     if total <= num_found:
-        return f"Filter: {fq} (it removed none of the {total:,} matches)."
-    return (
-        f"Filter: {fq}, so {num_found:,} of {total:,} matching papers are included; "
-        f"collection='all' includes the other {total - num_found:,}."
+        return f"{label} (left out none of the {total:,} matches)."
+    left_out = total - num_found
+    note = (
+        f"{label}, so {num_found:,} of {total:,} matching papers are included; "
+        + ("the other one is left out." if left_out == 1 else f"the other {left_out:,} are left out.")
     )
+    if any(query.startswith("collection:") for query, _ in filters):
+        note += " collection='all' includes other collections."
+    return note
 
 
 def _bare_id(identifier: str) -> str:
@@ -345,6 +369,26 @@ _AUTHOR_FILTERS = {
             "combined with a year range."
         ),
     },
+    "position": {
+        "type": "string",
+        "description": (
+            "Optional author position: '1' (first author), '2' (second), or a range "
+            "such as '1-3'. Uses ADS's pos() operator on the author list."
+        ),
+    },
+    "max_authors": {
+        "type": "integer",
+        "description": (
+            "Optional: only papers with at most this many authors (e.g. 20), to leave out "
+            "large collaboration papers. The result states how many papers this removed."
+        ),
+        "minimum": 1,
+    },
+    "refereed_only": {
+        "type": "boolean",
+        "description": "Optional: only refereed papers (default: false).",
+        "default": False,
+    },
 }
 
 
@@ -370,6 +414,9 @@ async def list_tools() -> list[Tool]:
                 "applies only to the next word or parenthesized group: in "
                 "title:Stellar populations, only 'Stellar' is searched in titles.\n"
                 "- Words combine with AND; OR and a leading minus also work.\n"
+                "- Author position: pos(author:\"Coelho, P\", 2) (second author), "
+                "pos(author:\"Coelho, P\", 1, 3) (first to third). Team size: "
+                "author_count:[1 TO 20].\n"
                 "- Citation networks: citations(bibcode:X) (papers citing X), "
                 "references(bibcode:X), similar(bibcode:X), trending(query).\n"
                 "- With a bibcode, DOI or arXiv ID in hand, use get_paper_details instead.\n"
@@ -523,7 +570,8 @@ async def list_tools() -> list[Tool]:
                 "Matches names, not people: searches the astronomy collection unless "
                 "told otherwise, and the result states the filter, so numbers can differ "
                 "from ADS's web page, which counts all collections. For a common name, "
-                "give the orcid."
+                "give the orcid. For a CV, refereed_only and max_authors give a figure for "
+                "the author's own work, without large collaboration papers."
             ),
             inputSchema={
                 "type": "object",
@@ -648,6 +696,9 @@ def _author_filters(arguments: dict[str, Any]) -> dict[str, Any]:
         "collection": arguments.get("collection", "astronomy"),
         "orcid": arguments.get("orcid"),
         "affiliation": arguments.get("affiliation"),
+        "position": arguments.get("position"),
+        "max_authors": arguments.get("max_authors"),
+        "refereed_only": arguments.get("refereed_only", False),
     }
 
 
@@ -739,6 +790,30 @@ _EMPTY_SEARCH_HELP = (
 )
 
 
+# A field followed by one bare word and then more bare words, as in
+# "title:Stellar populations: a review": ADS applies the field to the first word only.
+_LOOSE_FIELD = re.compile(
+    r'(?<![\w.])(title|abs|abstract|author|first_author|aff|keyword|full|body|object):'
+    r'([^\s"()]+)((?:\s+(?!(?:AND|OR|NOT)\b)[^\s"():\-][^\s"():]*:?(?=\s|$))+)'
+)
+
+
+def _field_scope_hint(query: str) -> str | None:
+    """Warn when a field reaches only the first of several words."""
+    match = _LOOSE_FIELD.search(query)
+    if match is None:
+        return None
+    field, first = match.group(1), match.group(2).rstrip(":")
+    rest = [w.rstrip(":") for w in match.group(3).split()]
+    words = " ".join([first, *rest])
+    fixed = f'{field}:"{words}"' if field in ("author", "first_author") else f"{field}:({words})"
+    return (
+        f"Note: {field}: applies only to '{first}'; '{' '.join(rest)}' is searched in all "
+        f"fields, which can bring in loosely related papers. To keep every word in "
+        f"{field}, write {fixed}."
+    )
+
+
 async def search_papers(
     query: str,
     max_results: int = 10,
@@ -753,25 +828,26 @@ async def search_papers(
         "relevance": "score desc",
     }
     offset = _offset(offset)
-    fq = _collection_filter(collection)
+    filters = _filters(collection)
     result = await _search(
         q=query,
         fl=["bibcode", "title", "author", "year", "citation_count", *_REFERENCE_FIELDS],
         rows=_clamp(max_results, 10, 50),
         sort=sort_map.get(sort, "date desc"),
         start=offset,
-        fq=fq,
+        fq=_fq(filters),
     )
     docs = result.get("docs", [])
     num_found = result.get("numFound", len(docs))
-    note = await _filter_note(query, collection, num_found)
+    note = await _filter_note(query, filters, num_found)
+    hint = _field_scope_hint(query)
 
     if not docs:
         if offset and num_found:
             text = f"No more results: '{query}' found {num_found} papers, fewer than offset={offset}."
         else:
             text = f"No papers found for query: {query}\n\n{_EMPTY_SEARCH_HELP}"
-        return [TextContent(type="text", text="\n".join(filter(None, [text, note])))]
+        return [TextContent(type="text", text="\n".join(filter(None, [text, hint, note])))]
 
     results = [
         f"{i}. {_title(doc)}\n"
@@ -782,7 +858,7 @@ async def search_papers(
         for i, doc in enumerate(docs, offset + 1)
     ]
     header = f"Found {num_found} papers for '{query}'" + _showing(offset, len(docs), num_found)
-    lines = [header + ":", note, "", "\n".join(results), _next_page(offset, len(docs), num_found)]
+    lines = [header + ":", hint, note, "", "\n".join(results), _next_page(offset, len(docs), num_found)]
     return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
@@ -828,8 +904,26 @@ async def get_paper_details(bibcodes: list[str]) -> list[TextContent]:
     return [TextContent(type="text", text="\n\n---\n\n".join(sections))]
 
 
-def _author_query(author: str, orcid: str | None, affiliation: str | None, years: str | None = None) -> str:
-    query = f'author:"{author}"'
+_POSITION = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+))?\s*$")
+
+
+def _author_query(
+    author: str,
+    orcid: str | None = None,
+    affiliation: str | None = None,
+    years: str | None = None,
+    position: str | int | None = None,
+) -> str:
+    if position is not None and str(position).strip():
+        match = _POSITION.match(str(position))
+        first = int(match.group(1)) if match else 0
+        last = int(match.group(2) or first) if match else 0
+        if first < 1 or last < first:
+            raise ADSError(f"position must be a number like '2' or a range like '1-3', not '{position}'.")
+        span = f"{first}, {last}" if last != first else str(first)
+        query = f'pos(author:"{author}", {span})'
+    else:
+        query = f'author:"{author}"'
     if orcid:
         query += f" orcid:{orcid.strip().removeprefix('https://orcid.org/')}"
     if affiliation:
@@ -847,9 +941,13 @@ async def get_author_papers(
     collection: str | None = "astronomy",
     orcid: str | None = None,
     affiliation: str | None = None,
+    position: str | int | None = None,
+    max_authors: int | None = None,
+    refereed_only: bool = False,
 ) -> list[TextContent]:
     """Get papers by a specific author."""
-    query = _author_query(author, orcid, affiliation)
+    query = _author_query(author, orcid, affiliation, position=position)
+    filters = _filters(collection, max_authors, refereed_only)
     offset = _offset(offset)
     result = await _search(
         q=query,
@@ -857,11 +955,11 @@ async def get_author_papers(
         rows=_clamp(max_results, 20, 100),
         sort="citation_count desc" if sort == "citation_count" else "date desc",
         start=offset,
-        fq=_collection_filter(collection),
+        fq=_fq(filters),
     )
     docs = result.get("docs", [])
     num_found = result.get("numFound", len(docs))
-    note = await _filter_note(query, collection, num_found)
+    note = await _filter_note(query, filters, num_found)
 
     if not docs:
         text = f"No papers found for {query}"
@@ -985,12 +1083,16 @@ async def get_author_metrics(
     collection: str | None = "astronomy",
     orcid: str | None = None,
     affiliation: str | None = None,
+    position: str | int | None = None,
+    max_authors: int | None = None,
+    refereed_only: bool = False,
 ) -> list[TextContent]:
     """Get comprehensive metrics for an author."""
-    query = _author_query(author, orcid, affiliation, years)
-    result = await _search(q=query, fl=["bibcode"], rows=ADS_MAX_ROWS, fq=_collection_filter(collection))
+    query = _author_query(author, orcid, affiliation, years, position)
+    filters = _filters(collection, max_authors, refereed_only)
+    result = await _search(q=query, fl=["bibcode"], rows=ADS_MAX_ROWS, fq=_fq(filters))
     bibcodes = [doc["bibcode"] for doc in result.get("docs", []) if doc.get("bibcode")]
-    note = await _filter_note(query, collection, result.get("numFound", len(bibcodes)))
+    note = await _filter_note(query, filters, result.get("numFound", len(bibcodes)))
     if not bibcodes:
         return [TextContent(type="text", text="\n".join(filter(None, [f"No papers found for {query}", note])))]
 
@@ -998,7 +1100,7 @@ async def get_author_metrics(
 
     lines = [f"Author Metrics for {query}", f"Total Papers: {len(bibcodes)}"]
     if note:
-        lines.append(note + " ADS's web page for the same search counts all collections.")
+        lines.append(note + " ADS's web page for the same search applies none of these filters.")
     if result.get("numFound", 0) > len(bibcodes):
         lines.append(
             f"Note: ADS found {result['numFound']} papers; metrics use the first {len(bibcodes)}."

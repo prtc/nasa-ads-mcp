@@ -98,6 +98,7 @@ Você pode escrever em português: o Claude traduz a busca para o ADS, onde quas
 | `property:refereed` | só artigos arbitrados |
 | `abs:"stellar populations"` | a expressão no título, resumo ou palavras-chave |
 | `title:(synthetic stellar spectra)` | essas palavras no título, em qualquer ordem |
+| `pos(author:"Coelho, P", 2)` | artigos com esse segundo autor (`1, 3` para do primeiro ao terceiro) |
 | `citations(bibcode:2005A&A...443..735C)` | artigos que citam esse artigo |
 | `references(bibcode:2005A&A...443..735C)` | artigos que esse artigo cita |
 
@@ -107,7 +108,7 @@ As ferramentas buscam registros reais do ADS, mas quem escreve os resumos é o C
 
 - **Confira antes de citar.** Abra a página do ADS de todo artigo que for citar e leia pelo menos o resumo você mesmo.
 - **Pegue o BibTeX pela ferramenta,** nunca digitado pelo Claude de memória. A ferramenta `export_bibtex` devolve exatamente o que o ADS exporta.
-- **As métricas de autor comparam nomes, não pessoas.** Um nome comum pode trazer artigos de outras pessoas. As ferramentas de autor buscam na coleção de astronomia por padrão e dizem isso em todo resultado; informe seu ORCID iD para contar só os seus artigos.
+- **As métricas de autor comparam nomes, não pessoas.** Um nome comum pode trazer artigos de outras pessoas. As ferramentas de autor buscam na coleção de astronomia por padrão e dizem isso em todo resultado; informe seu ORCID iD para contar só os seus artigos. Para o currículo, peça só artigos arbitrados, ou com no máximo, digamos, 20 autores, para que artigos de grandes colaborações não dominem.
 - **As bibliotecas são as suas bibliotecas reais do ADS.** Criar uma ou adicionar artigos muda sua conta no ADS. O Claude pergunta antes.
 - **Seu token é seu.** Tudo o que as ferramentas fazem acontece na sua conta do ADS e conta no seu limite diário do ADS.
 

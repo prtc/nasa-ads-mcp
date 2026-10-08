@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 — 2026-10-08
+
+Follow-ups from testing 0.5.0 in real use the same day.
+
+### Added
+- `position` for `get_author_papers` and `get_author_metrics`: papers where the author is first (`'1'`), second (`'2'`), or in a range (`'1-3'`), through ADS's `pos()` operator.
+- `max_authors` and `refereed_only` for the same tools, so CV metrics can leave out large collaboration papers (ADS's `author_count`) and unrefereed ones. All filters are listed in the result, with how many papers they left out.
+- `search_papers` warns when a field reaches only the first of several words: `title:Stellar populations: a review` searches only "Stellar" in titles and finds 1,087 loosely related papers; the note suggests `title:(Stellar populations a review)`, which finds 30.
+- The `search_papers` description teaches `pos()` and `author_count:`.
+
+### Note
+- A Claude session that started before an update keeps the old tool definitions. After updating, start a new session.
+
 ## 0.5.0 — 2026-10-08
 
 Fixes from a day of intensive real use.

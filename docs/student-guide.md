@@ -98,6 +98,7 @@ Claude asks your permission the first time it uses each tool.
 | `property:refereed` | refereed papers only |
 | `abs:"stellar populations"` | the phrase in title, abstract, or keywords |
 | `title:(synthetic stellar spectra)` | these words in the title, in any order |
+| `pos(author:"Coelho, P", 2)` | papers with that second author (`1, 3` for first to third) |
 | `citations(bibcode:2005A&A...443..735C)` | papers that cite that paper |
 | `references(bibcode:2005A&A...443..735C)` | papers that paper cites |
 
@@ -107,7 +108,7 @@ The tools fetch real records from ADS, but Claude writes the summaries, and summ
 
 - **Check before you cite.** Open the ADS page of any paper you plan to cite, and read at least the abstract yourself.
 - **Get BibTeX from the tool,** never typed by Claude from memory. The `export_bibtex` tool returns exactly what ADS exports.
-- **Author metrics match names, not people.** A common name can pull in other people's papers. The author tools search the astronomy collection by default and say so in every result; give your ORCID iD to count only your own papers.
+- **Author metrics match names, not people.** A common name can pull in other people's papers. The author tools search the astronomy collection by default and say so in every result; give your ORCID iD to count only your own papers. For a CV, ask for refereed papers only, or papers with at most, say, 20 authors, so large collaboration papers don't dominate.
 - **Libraries are your real ADS libraries.** Creating one or adding papers changes your ADS account. Claude asks before it does.
 - **Your token is yours.** Everything the tools do happens under your ADS account and counts against your daily ADS limit.
 
