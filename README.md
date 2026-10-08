@@ -13,9 +13,9 @@ This MCP server is the result of an experiment on collaborating with Claude  (An
 This MCP server exposes 10 tools for interacting with NASA ADS:
 
 ### Search & Discovery
-- **search_papers** - Search the ADS database with natural language queries
-- **get_paper_details** - Get comprehensive metadata for specific papers
-- **get_author_papers** - Find all publications by a specific author
+- **search_papers** - Search ADS with its full query syntax; results show journal, volume, page, DOI and arXiv ID, page through with `offset`, and can be limited to one collection
+- **get_paper_details** - Abstracts and full metadata for up to 20 papers at once, by bibcode, DOI or arXiv ID
+- **get_author_papers** - Find publications by an author, in the astronomy collection by default, optionally by ORCID or affiliation
 
 ### Metrics & Analytics
 - **get_paper_metrics** - Track citations, reads, and impact for specific papers
@@ -283,7 +283,7 @@ The server uses:
 ### API errors
 1. Verify your ADS API token is valid
 2. Check you haven't hit rate limits
-3. Confirm bibcodes are correctly formatted
+3. Confirm bibcodes are correctly formatted (19 characters, padded with dots). Lookups also accept DOIs, arXiv IDs and a paper's earlier bibcodes
 
 ### Can't see tools in Claude
 1. Fully quit and restart Claude Desktop

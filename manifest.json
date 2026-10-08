@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "nasa-ads",
   "display_name": "NASA ADS",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
   "long_description": "Gives Claude access to the NASA Astrophysics Data System (ADS) with your own ADS token: search papers, read abstracts, get citation and read metrics for papers and authors, export BibTeX exactly as ADS formats it, and list, create, and add to your ADS libraries. The server runs on your computer and talks only to the ADS API. A human-AI collaboration by Paula Coelho and Claude (Anthropic).",
   "author": {
@@ -51,27 +51,27 @@
   "tools": [
     {
       "name": "search_papers",
-      "description": "Search NASA ADS for astronomy/astrophysics papers. Returns bibcodes, titles, authors, years, and citation counts. Use natural language queries or specific field searches. Examples: 'stellar populations', 'author:Coelho', 'year:2020-2024'"
+      "description": "Search NASA ADS with full ADS query syntax. Results show title, authors, year, citations, journal, volume, page, DOI and arXiv ID, with paging and an optional collection filter."
     },
     {
       "name": "get_paper_details",
-      "description": "Get detailed information about a specific paper using its bibcode. Returns full metadata including abstract, authors, citations, keywords, and more."
+      "description": "Get abstracts and full details for up to 20 papers at once, by bibcode, DOI or arXiv ID."
     },
     {
       "name": "get_author_papers",
-      "description": "Find all papers by a specific author. Returns list of papers with citations and publication details."
+      "description": "Find papers by an author, in the astronomy collection by default, optionally narrowed by ORCID or affiliation. The result states any filter."
     },
     {
       "name": "export_bibtex",
-      "description": "Export BibTeX citations for one or more papers, exactly as ADS formats them (journal macros, volume, pages, DOI, eprint). Useful for adding references to LaTeX/Quarto documents."
+      "description": "Export BibTeX exactly as ADS formats it (journal macros, volume, pages, DOI, eprint), by bibcode, DOI or arXiv ID."
     },
     {
       "name": "get_paper_metrics",
-      "description": "Get detailed metrics for specific papers including citation count, reads, and impact indicators. Useful for tracking paper impact over time."
+      "description": "Get citation, read and impact metrics for papers, by bibcode, DOI or arXiv ID."
     },
     {
       "name": "get_author_metrics",
-      "description": "Get comprehensive metrics for an author including h-index, total citations, paper count, and citation statistics. Useful for CV preparation and tracking research impact. Note: matches every paper with this author name, so common names may include other people's papers."
+      "description": "Get an author's h-index, citations and other metrics, in the astronomy collection by default, optionally narrowed by ORCID or affiliation. The result states any filter."
     },
     {
       "name": "list_libraries",
