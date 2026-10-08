@@ -1,12 +1,13 @@
 # Roadmap
 
-What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.4.1 (September 2026).
+What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.5.0 (October 2026).
 
 The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
 
 ## Where things stand
 
 - **Version 0.4.1** is released: a Claude Code plugin, a Claude Desktop bundle (`nasa-ads.mcpb`, attached to each release), automated tests, and student guides in English and Portuguese.
+- **Version 0.5.0** answers the first day of intensive real use (October 2026): lookups by any identifier (old bibcodes, DOIs, arXiv IDs), batch paper details, reference fields in results, LaTeX-style sub/superscripts, paging, a collection filter that always says what it removed, ORCID and affiliation for the author tools, and ADS query syntax in the search tool's description. See `CHANGELOG.md`.
 - **Pleiad Astronomy** (the Claude Team organization) syncs the plugin from the private repository `pleiad-astronomy/plugins`, with default access "Installed by default".
 - **Checked against the live ADS API:** search, metrics (including reads), BibTeX export, and reading a 633-paper library in full.
 - **Not yet checked in real use:** the `.mcpb` bundle in an actual Claude Desktop, and whether Claude Code asks for the ADS token when the plugin arrives through the Team sync (it loads as `nasa-ads@synced`). Confirm both with the first students.
@@ -14,14 +15,13 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
 ## Next: modernize the server (Move 3)
 
 1. **Move to MCP SDK 2.x.** `pyproject.toml` pins `mcp<2` because 2.x removed the low-level API this server uses (`Server.list_tools`). In 2.x, FastMCP is renamed `MCPServer` (`from mcp.server.mcpserver import MCPServer`); see the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/). Tool schemas and annotations then come from type hints and decorators instead of the hand-written `list_tools`. The tests in `tests/test_server.py` call the tool functions and the MCP layer, so they should carry over with small changes.
-2. **Teach ADS search syntax in the tool descriptions:** `first_author:`, `property:refereed`, `abs:`, `year:`, and the operators `citations()`, `references()`, `similar()`, `trending()`. Cheap, and it lets Claude walk citation networks with the existing search tool.
+2. **ADS search syntax in the tool descriptions:** done for `search_papers` in 0.5.0. Watch whether Claude still stumbles on queries, and adjust the wording from real failures.
 3. **New tools**, roughly by value:
    - citations and references of a paper (dedicated tools, easier for Claude than the operators);
    - export in other ADS formats, especially AASTeX (for AAS journals) and RIS;
    - resolve a free-text reference string to a bibcode (to check a manuscript's bibliography);
-   - remove papers from a library;
-   - look up a paper by DOI or arXiv ID as well as by bibcode (ADS's `identifier:` field accepts all three), probably in `get_paper_details`.
-4. **Author disambiguation:** author metrics match names, not people. Consider an ORCID option (`orcid:` in ADS queries) for `get_author_metrics`.
+   - remove papers from a library.
+4. **Author disambiguation:** 0.5.0 added `orcid`, `affiliation` and a default astronomy `collection` to the author tools. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; ADS's `pos()` operator could tie an affiliation to the right author.
 5. **Default sort:** `search_papers` sorts by date; relevance may suit topical searches better. Try both on real questions before changing.
 
 ## Ideas backlog

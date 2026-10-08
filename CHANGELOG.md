@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.0 — 2026-10-08
+
+Fixes from a day of intensive real use.
+
+### Fixed
+- Papers asked for by an earlier bibcode (the arXiv preprint's, or MNRAS's temporary `.tmp.` one) were reported as "not found". `get_paper_details`, `export_bibtex`, `get_paper_metrics` and `get_library_papers` now look papers up through ADS's `identifier` field, which keeps those older bibcodes, and say when a paper's current bibcode differs.
+- `export_bibtex` no longer reports a paper as missing when ADS exported it under its current bibcode.
+- Titles, abstracts and keywords no longer show raw HTML: `H<SUB>2</SUB>` becomes `H$_{2}$`, `km s<SUP>-1</SUP>` becomes `km s$^{-1}$`, and entities like `&gt;` are decoded. BibTeX is left exactly as ADS writes it.
+
+### Added
+- `get_paper_details` takes up to 20 papers per call, by bibcode, DOI or arXiv ID, and says which ones ADS doesn't have and why that isn't a gap in the server. `export_bibtex` and `get_paper_metrics` also accept DOIs and arXiv IDs.
+- Search and author results show journal, volume, page, DOI and arXiv ID, so a reference can be checked in one call.
+- `offset` for `search_papers` and `get_author_papers`, and a line saying how to get the next page.
+- A `collection` filter (`astronomy`, `physics`, `earthscience`, `general`, or `all`). It is off by default in `search_papers`, since atomic and molecular data papers can sit only in the physics collection. The author tools default to `astronomy`, because common surnames otherwise pull in biology and geoscience. Whenever a filter is on, the result says how many papers it left out.
+- `orcid` and `affiliation` options for `get_author_papers` and `get_author_metrics`, to tell apart people who share a name.
+- The `search_papers` description teaches ADS query syntax: every word must match, fielded searches, how far a field reaches, and the citation operators. A search that finds nothing explains why and what to try instead.
+
+### Changed
+- `get_paper_details` takes a list, `bibcodes`, instead of a single `bibcode`.
+- Author metrics now default to the astronomy collection, so they can differ from ADS's web page; the result says so.
+
 ## 0.4.1 — 2026-09-27
 
 ### Added

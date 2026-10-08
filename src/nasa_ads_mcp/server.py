@@ -1,8 +1,10 @@
 """NASA ADS MCP Server - Main server implementation."""
 
 import asyncio
+import html
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -104,11 +106,22 @@ async def _api(
     return response.json()
 
 
-async def _search(q: str, fl: list[str], rows: int, sort: str | None = None) -> dict[str, Any]:
+async def _search(
+    q: str,
+    fl: list[str],
+    rows: int,
+    sort: str | None = None,
+    start: int = 0,
+    fq: str | None = None,
+) -> dict[str, Any]:
     """Run an ADS search query and return the Solr 'response' object."""
     params: dict[str, Any] = {"q": q, "fl": ",".join(fl), "rows": rows}
     if sort:
         params["sort"] = sort
+    if start:
+        params["start"] = start
+    if fq:
+        params["fq"] = fq
     data = await _api("GET", "/search/query", params=params)
     return data.get("response", {})
 
@@ -120,6 +133,13 @@ def _clamp(value: Any, default: int, maximum: int) -> int:
         return default
 
 
+def _offset(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _num(value: Any, fmt: str = "") -> str:
     """Format a metric that ADS may return as a number or as null."""
     if value is None:
@@ -127,9 +147,31 @@ def _num(value: Any, fmt: str = "") -> str:
     return format(value, fmt)
 
 
+# ADS marks sub- and superscripts with HTML tags and escapes <, > and & as entities
+_SUBSUP = re.compile(r"<(SUB|SUP)>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
+_BREAK = re.compile(r"<(BR|P)\b[^>]*>", re.IGNORECASE)
+_TAG = re.compile(r"</?[A-Za-z][^>]*>")
+
+
+def _clean(text: str) -> str:
+    """Turn ADS's HTML markup into plain text with LaTeX-style sub/superscripts.
+
+    H<SUB>2</SUB> becomes H$_{2}$, so titles can be pasted into a manuscript.
+    Unicode (Greek letters, μm) is left as it is.
+    """
+    def latex(match: re.Match[str]) -> str:
+        mark = "_" if match.group(1).upper() == "SUB" else "^"
+        return f"${mark}{{{match.group(2)}}}$"
+
+    text = _SUBSUP.sub(latex, text)
+    text = _BREAK.sub(" ", text)
+    text = _TAG.sub("", text)
+    return html.unescape(text)
+
+
 def _title(doc: dict[str, Any]) -> str:
     title = doc.get("title")
-    return title[0] if title else "No title"
+    return _clean(title[0]) if title else "No title"
 
 
 def _authors(doc: dict[str, Any], limit: int, total_note: bool = True) -> str:
@@ -140,10 +182,170 @@ def _authors(doc: dict[str, Any], limit: int, total_note: bool = True) -> str:
     return text
 
 
+# Fields that let a reference be checked without another call
+_REFERENCE_FIELDS = ["pub", "volume", "page", "doi", "identifier"]
+
+
+def _reference(doc: dict[str, Any]) -> str:
+    """Journal, volume, page, DOI and arXiv ID, as far as ADS has them."""
+    page = (doc.get("page") or [None])[0]
+    published = ", ".join(p for p in (doc.get("pub"), doc.get("volume"), page) if p)
+    # ADS lists arXiv's own DOI (10.48550/arXiv...) next to the journal's
+    doi = next((d for d in doc.get("doi") or [] if not d.lower().startswith("10.48550/")), None)
+    arxiv = next(
+        (i[len("arXiv:"):] for i in doc.get("identifier") or [] if i.startswith("arXiv:")), None
+    )
+    parts = [published or "Publication unknown"]
+    if doi:
+        parts.append(f"DOI: {doi}")
+    if arxiv and arxiv not in published:
+        parts.append(f"arXiv: {arxiv}")
+    return " | ".join(parts)
+
+
+# ADS collections (its "database" field). "all" means no filter.
+COLLECTIONS = ["astronomy", "physics", "earthscience", "general", "all"]
+
+
+def _collection_filter(collection: str | None) -> str | None:
+    if not collection or collection == "all":
+        return None
+    if collection not in COLLECTIONS:
+        raise ADSError(f"Unknown collection '{collection}'. Use one of: {', '.join(COLLECTIONS)}.")
+    return f"collection:{collection}"
+
+
+async def _filter_note(q: str, collection: str | None, num_found: int) -> str | None:
+    """Say what a collection filter left out, so its effect is never silent."""
+    fq = _collection_filter(collection)
+    if fq is None:
+        return None
+    total = (await _search(q=q, fl=["bibcode"], rows=0)).get("numFound", 0)
+    if total <= num_found:
+        return f"Filter: {fq} (it removed none of the {total:,} matches)."
+    return (
+        f"Filter: {fq}, so {num_found:,} of {total:,} matching papers are included; "
+        f"collection='all' includes the other {total - num_found:,}."
+    )
+
+
+def _bare_id(identifier: str) -> str:
+    """Drop the URL or 'doi:' prefix people often paste with a DOI."""
+    identifier = identifier.strip().replace('"', "")
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if identifier.lower().startswith(prefix):
+            return identifier[len(prefix):]
+    return identifier
+
+
+def _id_key(identifier: str) -> str:
+    """A form of an identifier that compares equal to ADS's own listing of it."""
+    key = _bare_id(identifier).lower()
+    return key[len("arxiv:"):] if key.startswith("arxiv:") else key
+
+
+# Identifiers (or bibcodes) per search, to keep each search URL short
+_SEARCH_CHUNK = 50
+
+
+async def _lookup(identifiers: list[str], fl: list[str]) -> dict[str, dict[str, Any]]:
+    """Find papers by bibcode, DOI or arXiv ID: {identifier as given: ADS record}.
+
+    Searches ADS's identifier field, not bibcode: a paper keeps its earlier
+    bibcodes there (the arXiv preprint's, MNRAS's temporary '.tmp.' one), so
+    references written before publication still resolve to the paper.
+    """
+    fl = list(dict.fromkeys(["bibcode", "identifier", *fl]))
+    found: dict[str, dict[str, Any]] = {}
+    for i in range(0, len(identifiers), _SEARCH_CHUNK):
+        chunk = identifiers[i:i + _SEARCH_CHUNK]
+        quoted = " OR ".join(f'"{_bare_id(x)}"' for x in chunk)
+        result = await _search(q=f"identifier:({quoted})", fl=fl, rows=2 * len(chunk))
+        by_key: dict[str, dict[str, Any]] = {}
+        for doc in result.get("docs", []):
+            for ident in [doc.get("bibcode") or "", *(doc.get("identifier") or [])]:
+                by_key[_id_key(ident)] = doc
+        for identifier in chunk:
+            doc = by_key.get(_id_key(identifier))
+            if doc is not None:
+                found[identifier] = doc
+    return found
+
+
+_NOT_FOUND_HELP = (
+    "The lookup used ADS's identifier field, which matches current and earlier "
+    "bibcodes, DOIs and arXiv IDs, so these are most likely mistyped (a bibcode has "
+    "19 characters, padded with dots, e.g. 2005A&A...443..735C) or not in ADS."
+)
+
+
+def _renamed(requested: list[str], found: dict[str, dict[str, Any]]) -> list[str]:
+    """'given → bibcode' for papers asked for by a DOI, arXiv ID or earlier bibcode."""
+    return [
+        f"{r} → {found[r]['bibcode']}"
+        for r in requested
+        if r in found and found[r].get("bibcode") != r
+    ]
+
+
+async def _resolve(identifiers: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Current bibcodes for the identifiers, plus notes on renamed and missing ones."""
+    found = await _lookup(identifiers, fl=[])
+    bibcodes = list(dict.fromkeys(found[i]["bibcode"] for i in identifiers if i in found))
+    missing = [i for i in identifiers if i not in found]
+    return bibcodes, _renamed(identifiers, found), missing
+
+
 # Create MCP server
 app = Server("nasa-ads-mcp")
 
 _READ_ONLY = dict(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+
+_IDENTIFIERS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Bibcodes (e.g. '2005A&A...443..735C'), DOIs or arXiv IDs (e.g. 'arXiv:1404.3243'). "
+        "Earlier bibcodes (arXiv preprint, MNRAS '.tmp.') also work."
+    ),
+    "minItems": 1,
+}
+
+_COLLECTION_HELP = (
+    "ADS collection to search: 'astronomy', 'physics', 'earthscience', 'general', "
+    "or 'all' for no filter."
+)
+
+_AUTHOR_FILTERS = {
+    "collection": {
+        "type": "string",
+        "description": (
+            _COLLECTION_HELP + " Default 'astronomy': common surnames otherwise bring in "
+            "biology, geoscience and other fields. Use 'all' to match ADS's web search, "
+            "or when the author's work includes physics-only papers (e.g. atomic and "
+            "molecular data). The result always states the filter and what it left out."
+        ),
+        "enum": COLLECTIONS,
+        "default": "astronomy",
+    },
+    "orcid": {
+        "type": "string",
+        "description": (
+            "Optional ORCID iD (e.g. '0000-0003-1846-4826'), the best way to tell apart "
+            "people with the same name. Only papers with this ORCID recorded in ADS "
+            "(from the publisher or claimed by the author) are included, so unclaimed "
+            "older papers are left out."
+        ),
+    },
+    "affiliation": {
+        "type": "string",
+        "description": (
+            "Optional affiliation words (e.g. 'Sao Paulo'). Matches the affiliation of "
+            "any author on the paper, and affiliations change over a career, so best "
+            "combined with a year range."
+        ),
+    },
+}
 
 
 @app.list_tools()
@@ -154,17 +356,32 @@ async def list_tools() -> list[Tool]:
             name="search_papers",
             title="Search papers",
             description=(
-                "Search NASA ADS for astronomy/astrophysics papers. "
-                "Returns bibcodes, titles, authors, years, and citation counts. "
-                "Use natural language queries or specific field searches. "
-                "Examples: 'stellar populations', 'author:Coelho', 'year:2020-2024'"
+                "Search NASA ADS for papers. Each result shows title, authors, year, "
+                "citations, publication (journal, volume, page), DOI, arXiv ID and bibcode.\n\n"
+                "How ADS queries work:\n"
+                "- Every word must match. One word written differently from the record "
+                "('microns' vs 'μm', a missing hyphen) returns nothing, so search a few "
+                "distinctive words rather than a pasted full title.\n"
+                "- Fielded queries are the most reliable: author:\"Coelho, P\", "
+                "first_author:\"Coelho, P\", title:(synthetic stellar spectra) (these words, "
+                "any order), abs:(...) (title, abstract and keywords), year:2020 or "
+                "year:2018-2024, property:refereed, doi:..., bibcode:(A OR B).\n"
+                "- Quotes ask for an exact phrase, which is fragile with titles. A field "
+                "applies only to the next word or parenthesized group: in "
+                "title:Stellar populations, only 'Stellar' is searched in titles.\n"
+                "- Words combine with AND; OR and a leading minus also work.\n"
+                "- Citation networks: citations(bibcode:X) (papers citing X), "
+                "references(bibcode:X), similar(bibcode:X), trending(query).\n"
+                "- With a bibcode, DOI or arXiv ID in hand, use get_paper_details instead.\n"
+                "Sorted newest first by default; sort='relevance' suits topical searches. "
+                "Page through long result lists with offset."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query (e.g., 'stellar populations in elliptical galaxies')",
+                        "description": "ADS query, e.g. 'title:(stellar populations) year:2020-2024'",
                     },
                     "max_results": {
                         "type": "integer",
@@ -179,6 +396,22 @@ async def list_tools() -> list[Tool]:
                         "enum": ["date", "citation_count", "relevance"],
                         "default": "date",
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Number of results to skip, for the next page (default: 0)",
+                        "default": 0,
+                        "minimum": 0,
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": (
+                            _COLLECTION_HELP + " Default 'all'. 'astronomy' cuts noise from "
+                            "other fields but hides physics-only papers such as atomic and "
+                            "molecular data; the result states what the filter left out."
+                        ),
+                        "enum": COLLECTIONS,
+                        "default": "all",
+                    },
                 },
                 "required": ["query"],
             },
@@ -188,18 +421,16 @@ async def list_tools() -> list[Tool]:
             name="get_paper_details",
             title="Get paper details",
             description=(
-                "Get detailed information about a specific paper using its bibcode. "
-                "Returns full metadata including abstract, authors, citations, keywords, and more."
+                "Get full details for up to 20 papers in one call: abstract, authors, "
+                "publication (journal, volume, page), DOI, arXiv ID, keywords and citations. "
+                "Accepts bibcodes, DOIs and arXiv IDs, and says which ones ADS doesn't have."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "bibcode": {
-                        "type": "string",
-                        "description": "ADS bibcode (e.g., '2019ApJ...878...98S')",
-                    },
+                    "bibcodes": {**_IDENTIFIERS, "maxItems": 20},
                 },
-                "required": ["bibcode"],
+                "required": ["bibcodes"],
             },
             annotations=ToolAnnotations(title="Get paper details", **_READ_ONLY),
         ),
@@ -207,15 +438,19 @@ async def list_tools() -> list[Tool]:
             name="get_author_papers",
             title="Get author papers",
             description=(
-                "Find all papers by a specific author. "
-                "Returns list of papers with citations and publication details."
+                "Find papers by an author. Returns titles, years, publication details, "
+                "citations and bibcodes. Searches the astronomy collection unless told "
+                "otherwise; use orcid to tell apart people who share a name."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "author": {
                         "type": "string",
-                        "description": "Author name (e.g., 'Coelho, P.' or 'Coelho, Paula')",
+                        "description": (
+                            "Author name, 'Lastname, F' or 'Lastname, First' "
+                            "(e.g. 'Coelho, P' matches every first name starting with P)"
+                        ),
                     },
                     "max_results": {
                         "type": "integer",
@@ -230,6 +465,13 @@ async def list_tools() -> list[Tool]:
                         "enum": ["date", "citation_count"],
                         "default": "date",
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Number of results to skip, for the next page (default: 0)",
+                        "default": 0,
+                        "minimum": 0,
+                    },
+                    **_AUTHOR_FILTERS,
                 },
                 "required": ["author"],
             },
@@ -241,17 +483,14 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Export BibTeX citations for one or more papers, exactly as ADS formats them "
                 "(journal macros, volume, pages, DOI, eprint). "
+                "Accepts bibcodes, DOIs and arXiv IDs; the BibTeX key is always ADS's "
+                "current bibcode, and the result notes any that changed. "
                 "Useful for adding references to LaTeX/Quarto documents."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "bibcodes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of ADS bibcodes to export",
-                        "minItems": 1,
-                    },
+                    "bibcodes": _IDENTIFIERS,
                 },
                 "required": ["bibcodes"],
             },
@@ -262,18 +501,13 @@ async def list_tools() -> list[Tool]:
             title="Get paper metrics",
             description=(
                 "Get detailed metrics for specific papers including citation count, "
-                "reads, and impact indicators. "
+                "reads, and impact indicators. Accepts bibcodes, DOIs and arXiv IDs. "
                 "Useful for tracking paper impact over time."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "bibcodes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of ADS bibcodes (e.g., ['2019ApJ...878...98S'])",
-                        "minItems": 1,
-                    },
+                    "bibcodes": _IDENTIFIERS,
                 },
                 "required": ["bibcodes"],
             },
@@ -286,20 +520,23 @@ async def list_tools() -> list[Tool]:
                 "Get comprehensive metrics for an author including h-index, "
                 "total citations, paper count, and citation statistics. "
                 "Useful for CV preparation and tracking research impact. "
-                "Note: matches every paper with this author name, so common names "
-                "may include other people's papers."
+                "Matches names, not people: searches the astronomy collection unless "
+                "told otherwise, and the result states the filter, so numbers can differ "
+                "from ADS's web page, which counts all collections. For a common name, "
+                "give the orcid."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "author": {
                         "type": "string",
-                        "description": "Author name (e.g., 'Coelho, P.' or 'Coelho, Paula R. T.')",
+                        "description": "Author name (e.g. 'Coelho, P' or 'Coelho, Paula R. T.')",
                     },
                     "years": {
                         "type": "string",
                         "description": "Optional year range (e.g., '2020-2025')",
                     },
+                    **_AUTHOR_FILTERS,
                 },
                 "required": ["author"],
             },
@@ -406,6 +643,14 @@ async def list_tools() -> list[Tool]:
     ]
 
 
+def _author_filters(arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "collection": arguments.get("collection", "astronomy"),
+        "orcid": arguments.get("orcid"),
+        "affiliation": arguments.get("affiliation"),
+    }
+
+
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     """Handle tool calls for NASA ADS operations.
@@ -419,16 +664,20 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             query=arguments["query"],
             max_results=arguments.get("max_results", 10),
             sort=arguments.get("sort", "date"),
+            offset=arguments.get("offset", 0),
+            collection=arguments.get("collection", "all"),
         )
 
     elif name == "get_paper_details":
-        return await get_paper_details(bibcode=arguments["bibcode"])
+        return await get_paper_details(bibcodes=arguments["bibcodes"])
 
     elif name == "get_author_papers":
         return await get_author_papers(
             author=arguments["author"],
             max_results=arguments.get("max_results", 20),
             sort=arguments.get("sort", "date"),
+            offset=arguments.get("offset", 0),
+            **_author_filters(arguments),
         )
 
     elif name == "export_bibtex":
@@ -440,7 +689,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     elif name == "get_author_metrics":
         return await get_author_metrics(
             author=arguments["author"],
-            years=arguments.get("years")
+            years=arguments.get("years"),
+            **_author_filters(arguments),
         )
 
     elif name == "list_libraries":
@@ -466,107 +716,195 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         raise ValueError(f"Unknown tool: {name}")
 
 
-async def search_papers(query: str, max_results: int = 10, sort: str = "date") -> list[TextContent]:
+def _showing(offset: int, shown: int, num_found: int) -> str:
+    """'showing 11-20'; empty when every result is shown."""
+    if offset == 0 and shown >= num_found:
+        return ""
+    if shown == 1:
+        return f" (showing {offset + 1})"
+    return f" (showing {offset + 1}-{offset + shown})"
+
+
+def _next_page(offset: int, shown: int, num_found: int) -> str | None:
+    if offset + shown >= num_found:
+        return None
+    return f"More results: call again with offset={offset + shown}."
+
+
+_EMPTY_SEARCH_HELP = (
+    "ADS requires every word to match, so one word written differently from the record "
+    "('microns' vs 'μm') hides a paper. Try fewer, distinctive words, title:(...) or "
+    "abs:(...) without quotes, author:\"Lastname, F\" with year:, or get_paper_details "
+    "with a bibcode, DOI or arXiv ID."
+)
+
+
+async def search_papers(
+    query: str,
+    max_results: int = 10,
+    sort: str = "date",
+    offset: int = 0,
+    collection: str | None = "all",
+) -> list[TextContent]:
     """Search ADS for papers."""
     sort_map = {
         "date": "date desc",
         "citation_count": "citation_count desc",
         "relevance": "score desc",
     }
+    offset = _offset(offset)
+    fq = _collection_filter(collection)
     result = await _search(
         q=query,
-        fl=["bibcode", "title", "author", "year", "citation_count"],
+        fl=["bibcode", "title", "author", "year", "citation_count", *_REFERENCE_FIELDS],
         rows=_clamp(max_results, 10, 50),
         sort=sort_map.get(sort, "date desc"),
+        start=offset,
+        fq=fq,
     )
     docs = result.get("docs", [])
+    num_found = result.get("numFound", len(docs))
+    note = await _filter_note(query, collection, num_found)
 
     if not docs:
-        return [TextContent(type="text", text=f"No papers found for query: {query}")]
+        if offset and num_found:
+            text = f"No more results: '{query}' found {num_found} papers, fewer than offset={offset}."
+        else:
+            text = f"No papers found for query: {query}\n\n{_EMPTY_SEARCH_HELP}"
+        return [TextContent(type="text", text="\n".join(filter(None, [text, note])))]
 
     results = [
         f"{i}. {_title(doc)}\n"
         f"   Authors: {_authors(doc, 3)}\n"
-        f"   Year: {doc.get('year', 'n/a')}\n"
-        f"   Citations: {doc.get('citation_count') or 0}\n"
+        f"   Year: {doc.get('year', 'n/a')} | Citations: {doc.get('citation_count') or 0}\n"
+        f"   Published: {_reference(doc)}\n"
         f"   Bibcode: {doc.get('bibcode')}\n"
-        for i, doc in enumerate(docs, 1)
+        for i, doc in enumerate(docs, offset + 1)
     ]
-    header = f"Found {result.get('numFound', len(docs))} papers for '{query}'"
-    if result.get("numFound", 0) > len(docs):
-        header += f" (showing {len(docs)})"
-    return [TextContent(type="text", text=header + ":\n\n" + "\n".join(results))]
+    header = f"Found {num_found} papers for '{query}'" + _showing(offset, len(docs), num_found)
+    lines = [header + ":", note, "", "\n".join(results), _next_page(offset, len(docs), num_found)]
+    return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
-async def get_paper_details(bibcode: str) -> list[TextContent]:
-    """Get detailed information about a specific paper."""
-    result = await _search(
-        q=f'bibcode:"{bibcode}"',
-        fl=["bibcode", "title", "author", "year", "citation_count",
-            "abstract", "keyword", "doi", "pub"],
-        rows=1,
+async def get_paper_details(bibcodes: list[str]) -> list[TextContent]:
+    """Get detailed information about papers, by bibcode, DOI or arXiv ID."""
+    if not bibcodes:
+        raise ADSError("No bibcodes provided.")
+    if len(bibcodes) > 20:
+        raise ADSError(f"At most 20 papers per call ({len(bibcodes)} given); split the list.")
+    found = await _lookup(
+        bibcodes,
+        fl=["title", "author", "year", "citation_count", "abstract", "keyword", *_REFERENCE_FIELDS],
     )
-    docs = result.get("docs", [])
-    if not docs:
-        return [TextContent(type="text", text=f"Paper not found: {bibcode}")]
 
-    paper = docs[0]
-    doi = paper.get("doi")
-    keywords = paper.get("keyword")
-    details = [
-        f"Title: {_title(paper)}",
-        f"Authors: {'; '.join(paper.get('author') or ['Unknown'])}",
-        f"Publication: {paper.get('pub') or 'Unknown'}",
-        f"Year: {paper.get('year', 'n/a')}",
-        f"Citations: {paper.get('citation_count') or 0}",
-        f"DOI: {doi[0] if doi else 'N/A'}",
-        f"Keywords: {', '.join(keywords) if keywords else 'None'}",
-        f"Bibcode: {paper.get('bibcode')}",
-        f"ADS: {ADS_ABS_URL}/{paper.get('bibcode')}",
-        "",
-        "Abstract:",
-        paper.get("abstract") or "No abstract available",
-    ]
-    return [TextContent(type="text", text="\n".join(details))]
+    sections = []
+    for requested in bibcodes:
+        paper = found.get(requested)
+        if paper is None:
+            continue
+        bibcode = paper.get("bibcode")
+        keywords = paper.get("keyword")
+        details = [
+            f"Title: {_title(paper)}",
+            f"Authors: {_authors(paper, 30)}",
+            f"Year: {paper.get('year', 'n/a')} | Citations: {paper.get('citation_count') or 0}",
+            f"Published: {_reference(paper)}",
+            f"Keywords: {_clean(', '.join(keywords)) if keywords else 'None'}",
+            f"Bibcode: {bibcode}",
+        ]
+        if bibcode != requested:
+            details.append(f"Requested as: {requested}")
+        details += [
+            f"ADS: {ADS_ABS_URL}/{bibcode}",
+            "",
+            "Abstract:",
+            _clean(paper.get("abstract") or "No abstract available"),
+        ]
+        sections.append("\n".join(details))
+
+    missing = [b for b in bibcodes if b not in found]
+    if missing:
+        sections.append(f"Not found in ADS: {', '.join(missing)}\n{_NOT_FOUND_HELP}")
+    return [TextContent(type="text", text="\n\n---\n\n".join(sections))]
 
 
-async def get_author_papers(author: str, max_results: int = 20, sort: str = "date") -> list[TextContent]:
+def _author_query(author: str, orcid: str | None, affiliation: str | None, years: str | None = None) -> str:
+    query = f'author:"{author}"'
+    if orcid:
+        query += f" orcid:{orcid.strip().removeprefix('https://orcid.org/')}"
+    if affiliation:
+        query += f' aff:"{affiliation}"'
+    if years:
+        query += f" year:{years}"
+    return query
+
+
+async def get_author_papers(
+    author: str,
+    max_results: int = 20,
+    sort: str = "date",
+    offset: int = 0,
+    collection: str | None = "astronomy",
+    orcid: str | None = None,
+    affiliation: str | None = None,
+) -> list[TextContent]:
     """Get papers by a specific author."""
+    query = _author_query(author, orcid, affiliation)
+    offset = _offset(offset)
     result = await _search(
-        q=f'author:"{author}"',
-        fl=["bibcode", "title", "year", "citation_count"],
+        q=query,
+        fl=["bibcode", "title", "year", "citation_count", *_REFERENCE_FIELDS],
         rows=_clamp(max_results, 20, 100),
         sort="citation_count desc" if sort == "citation_count" else "date desc",
+        start=offset,
+        fq=_collection_filter(collection),
     )
     docs = result.get("docs", [])
+    num_found = result.get("numFound", len(docs))
+    note = await _filter_note(query, collection, num_found)
 
     if not docs:
-        return [TextContent(type="text", text=f"No papers found for author: {author}")]
+        text = f"No papers found for {query}"
+        if offset and num_found:
+            text = f"No more results: {query} found {num_found} papers, fewer than offset={offset}."
+        return [TextContent(type="text", text="\n".join(filter(None, [text, note])))]
 
     total_citations = sum(doc.get("citation_count") or 0 for doc in docs)
     results = [
         f"{i}. {_title(doc)} ({doc.get('year', 'n/a')})\n"
+        f"   {_reference(doc)}\n"
         f"   Citations: {doc.get('citation_count') or 0} | Bibcode: {doc.get('bibcode')}\n"
-        for i, doc in enumerate(docs, 1)
+        for i, doc in enumerate(docs, offset + 1)
     ]
-    header = f"Found {result.get('numFound', len(docs))} papers by '{author}'"
-    if result.get("numFound", 0) > len(docs):
-        header += f" (showing {len(docs)})"
+    header = f"Found {num_found} papers for {query}" + _showing(offset, len(docs), num_found)
     header += f" (citations of papers shown: {total_citations})"
-    return [TextContent(type="text", text=header + ":\n\n" + "\n".join(results))]
+    lines = [header + ":", note, "", "\n".join(results), _next_page(offset, len(docs), num_found)]
+    return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
 async def export_bibtex(bibcodes: list[str]) -> list[TextContent]:
-    """Export BibTeX citations using the ADS export service."""
+    """Export BibTeX citations using the ADS export service.
+
+    The BibTeX is ADS's own and is passed on untouched (no _clean): ADS already
+    writes sub/superscripts and special characters as LaTeX there.
+    """
     if not bibcodes:
         raise ADSError("No bibcodes provided.")
-    data = await _api("POST", "/export/bibtex", json={"bibcode": bibcodes})
+    current, renamed, missing = await _resolve(bibcodes)
+    if not current:
+        return [TextContent(
+            type="text", text=f"Not found in ADS: {', '.join(missing)}\n{_NOT_FOUND_HELP}"
+        )]
+
+    data = await _api("POST", "/export/bibtex", json={"bibcode": current})
     bibtex = (data.get("export") or "").strip()
     if not bibtex:
         return [TextContent(type="text", text="ADS returned no BibTeX for these bibcodes.")]
 
     text = "BibTeX Citations:\n\n" + bibtex
-    missing = [b for b in bibcodes if b not in bibtex]
+    if renamed:
+        text += "\n\n% Keys are ADS's current bibcodes: "
+        text += "; ".join(renamed)
     if missing:
         text += "\n\n% Not found in ADS: " + ", ".join(missing)
     return [TextContent(type="text", text=text)]
@@ -624,30 +962,43 @@ async def get_paper_metrics(bibcodes: list[str]) -> list[TextContent]:
     """Get metrics for specific papers."""
     if not bibcodes:
         raise ADSError("No bibcodes provided.")
-    data = await _api("POST", "/metrics", json={"bibcodes": bibcodes})
+    current, renamed, missing = await _resolve(bibcodes)
+    notes = []
+    if renamed:
+        notes.append(f"Resolved to ADS's current bibcodes: {'; '.join(renamed)}")
+    if missing:
+        notes.append(f"Not found in ADS: {', '.join(missing)}")
+    if not current:
+        return [TextContent(type="text", text="\n".join(notes + [_NOT_FOUND_HELP]))]
+
+    data = await _api("POST", "/metrics", json={"bibcodes": current})
     lines = _format_metrics(data, indent="  ")
     if not lines:
-        return [TextContent(type="text", text="No metrics available for these papers")]
-    return [TextContent(type="text", text="\n".join([f"Paper Metrics ({len(bibcodes)} papers):", ""] + lines))]
+        return [TextContent(type="text", text="\n".join(["No metrics available for these papers", *notes]))]
+    header = [f"Paper Metrics ({len(current)} papers):", ""]
+    return [TextContent(type="text", text="\n".join(header + lines + ([""] + notes if notes else [])))]
 
 
-async def get_author_metrics(author: str, years: str | None = None) -> list[TextContent]:
+async def get_author_metrics(
+    author: str,
+    years: str | None = None,
+    collection: str | None = "astronomy",
+    orcid: str | None = None,
+    affiliation: str | None = None,
+) -> list[TextContent]:
     """Get comprehensive metrics for an author."""
-    query = f'author:"{author}"'
-    if years:
-        query += f" year:{years}"
-
-    result = await _search(q=query, fl=["bibcode"], rows=ADS_MAX_ROWS)
+    query = _author_query(author, orcid, affiliation, years)
+    result = await _search(q=query, fl=["bibcode"], rows=ADS_MAX_ROWS, fq=_collection_filter(collection))
     bibcodes = [doc["bibcode"] for doc in result.get("docs", []) if doc.get("bibcode")]
+    note = await _filter_note(query, collection, result.get("numFound", len(bibcodes)))
     if not bibcodes:
-        return [TextContent(type="text", text=f"No papers found for author: {author}")]
+        return [TextContent(type="text", text="\n".join(filter(None, [f"No papers found for {query}", note])))]
 
     data = await _api("POST", "/metrics", json={"bibcodes": bibcodes})
 
-    title = f"Author Metrics for {author}"
-    if years:
-        title += f" ({years})"
-    lines = [title, f"Total Papers: {len(bibcodes)}"]
+    lines = [f"Author Metrics for {query}", f"Total Papers: {len(bibcodes)}"]
+    if note:
+        lines.append(note + " ADS's web page for the same search counts all collections.")
     if result.get("numFound", 0) > len(bibcodes):
         lines.append(
             f"Note: ADS found {result['numFound']} papers; metrics use the first {len(bibcodes)}."
@@ -679,9 +1030,8 @@ async def list_libraries() -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lib_lines))]
 
 
-# Page size when reading a library, and bibcodes per metadata search
+# Page size when reading a library
 _LIBRARY_PAGE = 100
-_SEARCH_CHUNK = 50
 
 
 async def get_library_papers(library_id: str) -> list[TextContent]:
@@ -705,30 +1055,22 @@ async def get_library_papers(library_id: str) -> list[TextContent]:
     if not bibcodes:
         return [TextContent(type="text", text=f"No papers in library '{name}'")]
 
-    # Fetch paper metadata in chunks to keep each search URL short
-    docs_by_bibcode: dict[str, dict[str, Any]] = {}
-    for i in range(0, len(bibcodes), _SEARCH_CHUNK):
-        chunk = bibcodes[i:i + _SEARCH_CHUNK]
-        quoted = " OR ".join(f'"{b}"' for b in chunk)
-        result = await _search(
-            q=f"bibcode:({quoted})",
-            fl=["bibcode", "title", "author", "year", "citation_count"],
-            rows=len(chunk),
-        )
-        for doc in result.get("docs", []):
-            docs_by_bibcode[doc.get("bibcode")] = doc
+    docs = await _lookup(bibcodes, fl=["title", "author", "year", "citation_count"])
 
     paper_lines = [f"Papers in library '{name}' ({len(bibcodes)} papers):\n"]
     for i, bibcode in enumerate(bibcodes, 1):
-        doc = docs_by_bibcode.get(bibcode)
+        doc = docs.get(bibcode)
         if doc is None:
             paper_lines.append(f"{i}. (metadata not found)\n   Bibcode: {bibcode}\n")
             continue
+        current = doc.get("bibcode")
         paper_lines.append(
             f"{i}. {_title(doc)}\n"
             f"   {_authors(doc, 2, total_note=False)} ({doc.get('year', 'n/a')}) | "
             f"Citations: {doc.get('citation_count') or 0}\n"
-            f"   Bibcode: {bibcode}\n"
+            f"   Bibcode: {bibcode}"
+            + (f" (now {current} in ADS)" if current != bibcode else "")
+            + "\n"
         )
     return [TextContent(type="text", text="\n".join(paper_lines))]
 

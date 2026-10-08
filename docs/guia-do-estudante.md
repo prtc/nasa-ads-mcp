@@ -89,7 +89,7 @@ Aí é só pedir, por exemplo:
 
 Você pode escrever em português: o Claude traduz a busca para o ADS, onde quase tudo está em inglês. O Claude pede sua permissão na primeira vez que usa cada ferramenta.
 
-**Dicas de busca.** O Claude entende linguagem natural, mas a sintaxe de busca do ADS dá precisão, e você pode usá-la diretamente:
+**Dicas de busca.** O Claude entende linguagem natural, mas a sintaxe de busca do ADS dá precisão, e você pode usá-la diretamente. Lembre que o ADS exige que *todas* as palavras batam: um título completo colado com uma palavra escrita de outro jeito ("microns" em vez de "μm") não encontra nada, então poucas palavras características funcionam melhor.
 
 | Você escreve | Encontra |
 | :-- | :-- |
@@ -97,6 +97,7 @@ Você pode escrever em português: o Claude traduz a busca para o ADS, onde quas
 | `year:2020-2025` | um intervalo de anos |
 | `property:refereed` | só artigos arbitrados |
 | `abs:"stellar populations"` | a expressão no título, resumo ou palavras-chave |
+| `title:(synthetic stellar spectra)` | essas palavras no título, em qualquer ordem |
 | `citations(bibcode:2005A&A...443..735C)` | artigos que citam esse artigo |
 | `references(bibcode:2005A&A...443..735C)` | artigos que esse artigo cita |
 
@@ -106,7 +107,7 @@ As ferramentas buscam registros reais do ADS, mas quem escreve os resumos é o C
 
 - **Confira antes de citar.** Abra a página do ADS de todo artigo que for citar e leia pelo menos o resumo você mesmo.
 - **Pegue o BibTeX pela ferramenta,** nunca digitado pelo Claude de memória. A ferramenta `export_bibtex` devolve exatamente o que o ADS exporta.
-- **As métricas de autor comparam nomes, não pessoas.** Um nome comum pode trazer artigos de outras pessoas.
+- **As métricas de autor comparam nomes, não pessoas.** Um nome comum pode trazer artigos de outras pessoas. As ferramentas de autor buscam na coleção de astronomia por padrão e dizem isso em todo resultado; informe seu ORCID iD para contar só os seus artigos.
 - **As bibliotecas são as suas bibliotecas reais do ADS.** Criar uma ou adicionar artigos muda sua conta no ADS. O Claude pergunta antes.
 - **Seu token é seu.** Tudo o que as ferramentas fazem acontece na sua conta do ADS e conta no seu limite diário do ADS.
 
