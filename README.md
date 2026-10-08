@@ -15,11 +15,11 @@ This MCP server exposes 10 tools for interacting with NASA ADS:
 ### Search & Discovery
 - **search_papers** - Search ADS with its full query syntax; results show journal, volume, page, DOI and arXiv ID, page through with `offset`, and can be limited to one collection
 - **get_paper_details** - Abstracts and full metadata for up to 20 papers at once, by bibcode, DOI or arXiv ID
-- **get_author_papers** - Find publications by an author, in the astronomy collection by default, optionally by ORCID or affiliation
+- **get_author_papers** - Find publications by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position ("papers where I'm second author"), team size or refereed status
 
 ### Metrics & Analytics
 - **get_paper_metrics** - Track citations, reads, and impact for specific papers
-- **get_author_metrics** - Calculate h-index, citation statistics, and research impact
+- **get_author_metrics** - Calculate h-index, citation statistics, and research impact, with the same options (e.g. refereed papers with at most 20 authors, for a CV)
 
 ### Reference Management
 - **export_bibtex** - Export properly formatted BibTeX citations

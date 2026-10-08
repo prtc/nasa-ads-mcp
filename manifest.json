@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "nasa-ads",
   "display_name": "NASA ADS",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
   "long_description": "Gives Claude access to the NASA Astrophysics Data System (ADS) with your own ADS token: search papers, read abstracts, get citation and read metrics for papers and authors, export BibTeX exactly as ADS formats it, and list, create, and add to your ADS libraries. The server runs on your computer and talks only to the ADS API. A human-AI collaboration by Paula Coelho and Claude (Anthropic).",
   "author": {
@@ -59,7 +59,7 @@
     },
     {
       "name": "get_author_papers",
-      "description": "Find papers by an author, in the astronomy collection by default, optionally narrowed by ORCID or affiliation. The result states any filter."
+      "description": "Find papers by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position (e.g. second author), team size or refereed status. The result states any filter."
     },
     {
       "name": "export_bibtex",
@@ -71,7 +71,7 @@
     },
     {
       "name": "get_author_metrics",
-      "description": "Get an author's h-index, citations and other metrics, in the astronomy collection by default, optionally narrowed by ORCID or affiliation. The result states any filter."
+      "description": "Get an author's h-index, citations and other metrics, in the astronomy collection by default, optionally by ORCID, affiliation, author position, team size or refereed status (useful for a CV). The result states any filter."
     },
     {
       "name": "list_libraries",
