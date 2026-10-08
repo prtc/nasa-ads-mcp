@@ -914,12 +914,13 @@ def _author_query(
     years: str | None = None,
     position: str | int | None = None,
 ) -> str:
-    if position:
+    if position is not None and str(position).strip():
         match = _POSITION.match(str(position))
-        if match is None or int(match.group(1)) < 1:
+        first = int(match.group(1)) if match else 0
+        last = int(match.group(2) or first) if match else 0
+        if first < 1 or last < first:
             raise ADSError(f"position must be a number like '2' or a range like '1-3', not '{position}'.")
-        first, last = match.group(1), match.group(2)
-        span = f"{first}, {last}" if last and last != first else first
+        span = f"{first}, {last}" if last != first else str(first)
         query = f'pos(author:"{author}", {span})'
     else:
         query = f'author:"{author}"'

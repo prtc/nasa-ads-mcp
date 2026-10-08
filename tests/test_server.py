@@ -419,7 +419,8 @@ def test_author_position():
     assert query("Coelho, P", position=1) == 'pos(author:"Coelho, P", 1)'
     assert query("Coelho, P", position=" 1 - 3 ") == 'pos(author:"Coelho, P", 1, 3)'
     assert query("Coelho, P", position="2-2") == 'pos(author:"Coelho, P", 2)'
-    for bad in ("second", "0", "2-"):
+    assert query("Coelho, P", position="") == 'author:"Coelho, P"'
+    for bad in ("second", "0", 0, "2-", "3-1", "1-0"):
         with pytest.raises(server.ADSError, match="position must be"):
             query("Coelho, P", position=bad)
 
