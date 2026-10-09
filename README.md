@@ -255,7 +255,7 @@ Contributions are welcome! [ROADMAP.md](ROADMAP.md) lists what's planned next, t
 ## Technical Details
 
 Built with:
-- **MCP SDK** (Python, 1.x) for the MCP protocol
+- **MCP SDK** (Python, 2.x) for the MCP protocol: each tool is a typed Python function, and its input schema comes from the type hints
 - **httpx** for asynchronous calls to the ADS API (search, export, metrics, libraries)
 - **python-dotenv** for secure token management
 

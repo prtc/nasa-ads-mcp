@@ -4,7 +4,7 @@ import json
 
 import httpx
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import Client
 
 from nasa_ads_mcp import server
 
@@ -521,46 +521,63 @@ async def test_create_library(ads):
 # --- the MCP layer, end to end -----------------------------------------------
 
 async def test_every_tool_has_title_and_annotations():
-    async with create_connected_server_and_client_session(server.app) as client:
+    async with Client(server.app) as client:
         tools = (await client.list_tools()).tools
     assert len(tools) == 10
     for tool in tools:
         assert tool.title, tool.name
         assert tool.annotations is not None, tool.name
-        assert tool.annotations.readOnlyHint is not None, tool.name
-        assert tool.annotations.destructiveHint is False, tool.name
-    writers = {t.name for t in tools if not t.annotations.readOnlyHint}
+        assert tool.annotations.read_only_hint is not None, tool.name
+        assert tool.annotations.destructive_hint is False, tool.name
+    writers = {t.name for t in tools if not t.annotations.read_only_hint}
     assert writers == {"create_library", "add_to_library"}
+
+
+async def test_input_schemas_suit_claude():
+    """The schemas come from type hints, so check what they advertise: the Claude API
+    rejects a top-level anyOf/oneOf/allOf, every parameter needs its description,
+    and optional parameters keep their plain type (no anyOf with null)."""
+    standard = {"type", "description", "title", "default", "enum", "items",
+                "minimum", "maximum", "minItems", "maxItems"}
+    for tool in await server.app.list_tools():
+        schema = tool.input_schema
+        assert schema["type"] == "object", tool.name
+        assert not {"anyOf", "oneOf", "allOf"} & set(schema), tool.name
+        for name, prop in schema["properties"].items():
+            assert prop.get("description"), (tool.name, name)
+            assert "type" in prop, (tool.name, name)
+            # e.g. a constraint on a union comes out as "ge" instead of "minimum"
+            assert set(prop) <= standard, (tool.name, name, set(prop) - standard)
 
 
 async def test_errors_reach_claude_marked_as_errors(ads):
     ads(lambda r: httpx.Response(401))
-    async with create_connected_server_and_client_session(server.app) as client:
+    async with Client(server.app) as client:
         result = await client.call_tool("search_papers", {"query": "x"})
-    assert result.isError is True
+    assert result.is_error is True
     assert "rejected the API token" in result.content[0].text
 
 
 async def test_successful_call_is_not_an_error(ads):
     ads(lambda r: search_response([]))
-    async with create_connected_server_and_client_session(server.app) as client:
+    async with Client(server.app) as client:
         result = await client.call_tool("search_papers", {"query": "x"})
-    assert result.isError is False
+    assert result.is_error is False
 
 
 async def test_new_parameters_reach_the_tools(ads):
     fake = ads(lambda r: search_response([PAPER]))
-    async with create_connected_server_and_client_session(server.app) as client:
+    async with Client(server.app) as client:
         details = await client.call_tool("get_paper_details", {"bibcodes": ["2014arXiv1404.3243C"]})
         await client.call_tool("search_papers", {"query": "x", "offset": 20, "collection": "physics"})
-    assert details.isError is False and "Requested as" in details.content[0].text
+    assert details.is_error is False and "Requested as" in details.content[0].text
     search = fake.requests[1].url.params
     assert search["start"] == "20" and search["fq"] == "collection:physics"
 
 
 async def test_author_options_reach_the_tools(ads):
     fake = ads(lambda r: search_response([{"bibcode": "a", "title": ["T"]}]))
-    async with create_connected_server_and_client_session(server.app) as client:
+    async with Client(server.app) as client:
         await client.call_tool("get_author_papers", {
             "author": "Coelho, P", "position": "2", "max_authors": 20,
             "refereed_only": True, "collection": "all",
@@ -602,7 +619,7 @@ def test_citation_date_matches_changelog():
 async def test_bundle_manifest_lists_the_server_tools():
     """Claude Desktop shows the manifest's tool list at install time, so it must match the server."""
     manifest = json.loads((ROOT / "manifest.json").read_text())
-    tools = await server.list_tools()
+    tools = await server.app.list_tools()
     assert [t["name"] for t in manifest["tools"]] == [t.name for t in tools]
     assert manifest["user_config"]["ads_api_token"]["sensitive"] is True
     assert manifest["server"]["mcp_config"]["env"]["ADS_API_TOKEN"] == "${user_config.ads_api_token}"
