@@ -550,6 +550,14 @@ async def test_input_schemas_suit_claude():
             assert set(prop) <= standard, (tool.name, name, set(prop) - standard)
 
 
+async def test_server_reports_its_own_version():
+    from nasa_ads_mcp import __version__
+
+    async with Client(server.app) as client:
+        assert client.server_info.name == "nasa-ads-mcp"
+        assert client.server_info.version == __version__
+
+
 async def test_errors_reach_claude_marked_as_errors(ads):
     ads(lambda r: httpx.Response(401))
     async with Client(server.app) as client:

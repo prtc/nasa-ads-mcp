@@ -16,6 +16,8 @@ from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from nasa_ads_mcp import __version__
+
 # Load environment variables: from the current directory, then from the project root
 load_dotenv()
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -331,7 +333,8 @@ async def _resolve(identifiers: list[str]) -> tuple[list[str], list[str], list[s
 # The MCP server. Each tool below is a function registered with @app.tool: the
 # SDK builds its input schema from the type hints, and the Field descriptions are
 # what Claude reads about each parameter.
-app = MCPServer("nasa-ads-mcp")
+# The version is reported to Claude when it connects (2.x would otherwise send "").
+app = MCPServer("nasa-ads-mcp", version=__version__)
 
 _READ_ONLY = dict(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
 

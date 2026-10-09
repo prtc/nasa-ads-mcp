@@ -8,6 +8,7 @@ The server moves to version 2 of the MCP Python SDK. The tools work as before.
 - Built on MCP SDK 2.x (`MCPServer`). Each tool is now a typed Python function with a decorator, and its input schema comes from the type hints instead of a hand-written list. The tools keep the same names, parameters, types, limits, defaults and descriptions; the schemas now also give each parameter a `title`, which the SDK adds.
 - Arguments outside a tool's schema (say, `max_results` above 50) are still refused before anything reaches ADS, now in the SDK's wording. Error messages begin with "Error executing tool <name>:".
 - A failure the server didn't anticipate reaches Claude as "Error executing tool <name>", with the details kept in the server log. Errors from ADS (token, rate limit, not found) are still reported in full.
+- When Claude connects, the server reports its own version (0.6.0); it used to report the SDK's.
 
 ### Verified against the live ADS API
 - The same calls to the old and new server (searches, paper details, author papers and metrics, BibTeX, paper metrics, libraries) gave identical answers.
