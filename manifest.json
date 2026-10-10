@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "nasa-ads",
   "display_name": "NASA ADS",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
   "long_description": "Gives Claude access to the NASA Astrophysics Data System (ADS) with your own ADS token: search papers, read abstracts, get citation and read metrics for papers and authors, export BibTeX exactly as ADS formats it, and list, create, and add to your ADS libraries. The server runs on your computer and talks only to the ADS API. A human-AI collaboration by Paula Coelho and Claude (Anthropic).",
   "author": {

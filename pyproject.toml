@@ -1,6 +1,6 @@
 [project]
 name = "nasa-ads-mcp"
-version = "0.5.1"
+version = "0.6.0"
 description = "MCP server for NASA Astrophysics Data System - search papers, track citations, export BibTeX"
 # Credit is shared; accountability is the maintainer's (see "How This Was Made" in README)
 authors = [
@@ -14,9 +14,11 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
-    # Pinned below 2.0: the 2.x SDK changed the server API this code uses
-    "mcp>=1.20,<2",
+    # 2.x: MCPServer, and tool errors as ToolError (see CHANGELOG 0.6.0)
+    "mcp>=2.2,<3",
     "httpx>=0.27",
+    # Field descriptions and types for the tool schemas
+    "pydantic>=2.12",
     "python-dotenv>=1.0.0",
 ]
 

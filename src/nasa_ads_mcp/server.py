@@ -6,12 +6,17 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal, get_args
 
 import httpx
 from dotenv import load_dotenv
-from mcp.server import Server
-from mcp.types import TextContent, Tool, ToolAnnotations
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import TextContent, ToolAnnotations
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
+
+from nasa_ads_mcp import __version__
 
 # Load environment variables: from the current directory, then from the project root
 load_dotenv()
@@ -44,8 +49,12 @@ ADS_MAX_ROWS = 2000
 _transport: httpx.AsyncBaseTransport | None = None
 
 
-class ADSError(Exception):
-    """An error talking to ADS, with a message meant for the user."""
+class ADSError(ToolError):
+    """An error talking to ADS, with a message meant for the user.
+
+    A ToolError reaches Claude as a result marked is_error=True, with this
+    message; the SDK hides the text of any other exception.
+    """
 
 
 # Where the `ads` Python package keeps the token; many astronomers already have it
@@ -204,7 +213,8 @@ def _reference(doc: dict[str, Any]) -> str:
 
 
 # ADS collections (its "database" field). "all" means no filter.
-COLLECTIONS = ["astronomy", "physics", "earthscience", "general", "all"]
+Collection = Literal["astronomy", "physics", "earthscience", "general", "all"]
+COLLECTIONS = list(get_args(Collection))
 
 
 def _filters(
@@ -320,451 +330,76 @@ async def _resolve(identifiers: list[str]) -> tuple[list[str], list[str], list[s
     return bibcodes, _renamed(identifiers, found), missing
 
 
-# Create MCP server
-app = Server("nasa-ads-mcp")
+# The MCP server. Each tool below is a function registered with @app.tool: the
+# SDK builds its input schema from the type hints, and the Field descriptions are
+# what Claude reads about each parameter.
+# The version is reported to Claude when it connects (2.x would otherwise send "").
+app = MCPServer("nasa-ads-mcp", version=__version__)
 
 _READ_ONLY = dict(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
 
-_IDENTIFIERS = {
-    "type": "array",
-    "items": {"type": "string"},
-    "description": (
+# An optional parameter, advertised with its plain type as in the hand-written
+# schemas before 0.6.0 (no anyOf with null); null is still accepted as "not given".
+OptionalStr = str | SkipJsonSchema[None]
+
+Identifiers = Annotated[list[str], Field(
+    description=(
         "Bibcodes (e.g. '2005A&A...443..735C'), DOIs or arXiv IDs (e.g. 'arXiv:1404.3243'). "
         "Earlier bibcodes (arXiv preprint, MNRAS '.tmp.') also work."
     ),
-    "minItems": 1,
-}
+    min_length=1,
+)]
+
+LibraryId = Annotated[str, Field(description="Library ID (from list_libraries)")]
+
+Offset = Annotated[int, Field(
+    description="Number of results to skip, for the next page (default: 0)", ge=0,
+)]
 
 _COLLECTION_HELP = (
     "ADS collection to search: 'astronomy', 'physics', 'earthscience', 'general', "
     "or 'all' for no filter."
 )
 
-_AUTHOR_FILTERS = {
-    "collection": {
-        "type": "string",
-        "description": (
-            _COLLECTION_HELP + " Default 'astronomy': common surnames otherwise bring in "
-            "biology, geoscience and other fields. Use 'all' to match ADS's web search, "
-            "or when the author's work includes physics-only papers (e.g. atomic and "
-            "molecular data). The result always states the filter and what it left out."
-        ),
-        "enum": COLLECTIONS,
-        "default": "astronomy",
-    },
-    "orcid": {
-        "type": "string",
-        "description": (
-            "Optional ORCID iD (e.g. '0000-0003-1846-4826'), the best way to tell apart "
-            "people with the same name. Only papers with this ORCID recorded in ADS "
-            "(from the publisher or claimed by the author) are included, so unclaimed "
-            "older papers are left out."
-        ),
-    },
-    "affiliation": {
-        "type": "string",
-        "description": (
-            "Optional affiliation words (e.g. 'Sao Paulo'). Matches the affiliation of "
-            "any author on the paper, and affiliations change over a career, so best "
-            "combined with a year range."
-        ),
-    },
-    "position": {
-        "type": "string",
-        "description": (
-            "Optional author position: '1' (first author), '2' (second), or a range "
-            "such as '1-3'. Uses ADS's pos() operator on the author list."
-        ),
-    },
-    "max_authors": {
-        "type": "integer",
-        "description": (
-            "Optional: only papers with at most this many authors (e.g. 20), to leave out "
-            "large collaboration papers. The result states how many papers this removed."
-        ),
-        "minimum": 1,
-    },
-    "refereed_only": {
-        "type": "boolean",
-        "description": "Optional: only refereed papers (default: false).",
-        "default": False,
-    },
-}
-
-
-@app.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available tools for NASA ADS access."""
-    return [
-        Tool(
-            name="search_papers",
-            title="Search papers",
-            description=(
-                "Search NASA ADS for papers. Each result shows title, authors, year, "
-                "citations, publication (journal, volume, page), DOI, arXiv ID and bibcode.\n\n"
-                "How ADS queries work:\n"
-                "- Every word must match. One word written differently from the record "
-                "('microns' vs 'μm', a missing hyphen) returns nothing, so search a few "
-                "distinctive words rather than a pasted full title.\n"
-                "- Fielded queries are the most reliable: author:\"Coelho, P\", "
-                "first_author:\"Coelho, P\", title:(synthetic stellar spectra) (these words, "
-                "any order), abs:(...) (title, abstract and keywords), year:2020 or "
-                "year:2018-2024, property:refereed, doi:..., bibcode:(A OR B).\n"
-                "- Quotes ask for an exact phrase, which is fragile with titles. A field "
-                "applies only to the next word or parenthesized group: in "
-                "title:Stellar populations, only 'Stellar' is searched in titles.\n"
-                "- Words combine with AND; OR and a leading minus also work.\n"
-                "- Author position: pos(author:\"Coelho, P\", 2) (second author), "
-                "pos(author:\"Coelho, P\", 1, 3) (first to third). Team size: "
-                "author_count:[1 TO 20].\n"
-                "- Citation networks: citations(bibcode:X) (papers citing X), "
-                "references(bibcode:X), similar(bibcode:X), trending(query).\n"
-                "- With a bibcode, DOI or arXiv ID in hand, use get_paper_details instead.\n"
-                "Sorted newest first by default; sort='relevance' suits topical searches. "
-                "Page through long result lists with offset."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "ADS query, e.g. 'title:(stellar populations) year:2020-2024'",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (default: 10, max: 50)",
-                        "default": 10,
-                        "minimum": 1,
-                        "maximum": 50,
-                    },
-                    "sort": {
-                        "type": "string",
-                        "description": "Sort order: 'date' (newest first), 'citation_count' (most cited), or 'relevance'",
-                        "enum": ["date", "citation_count", "relevance"],
-                        "default": "date",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Number of results to skip, for the next page (default: 0)",
-                        "default": 0,
-                        "minimum": 0,
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": (
-                            _COLLECTION_HELP + " Default 'all'. 'astronomy' cuts noise from "
-                            "other fields but hides physics-only papers such as atomic and "
-                            "molecular data; the result states what the filter left out."
-                        ),
-                        "enum": COLLECTIONS,
-                        "default": "all",
-                    },
-                },
-                "required": ["query"],
-            },
-            annotations=ToolAnnotations(title="Search papers", **_READ_ONLY),
-        ),
-        Tool(
-            name="get_paper_details",
-            title="Get paper details",
-            description=(
-                "Get full details for up to 20 papers in one call: abstract, authors, "
-                "publication (journal, volume, page), DOI, arXiv ID, keywords and citations. "
-                "Accepts bibcodes, DOIs and arXiv IDs, and says which ones ADS doesn't have."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "bibcodes": {**_IDENTIFIERS, "maxItems": 20},
-                },
-                "required": ["bibcodes"],
-            },
-            annotations=ToolAnnotations(title="Get paper details", **_READ_ONLY),
-        ),
-        Tool(
-            name="get_author_papers",
-            title="Get author papers",
-            description=(
-                "Find papers by an author. Returns titles, years, publication details, "
-                "citations and bibcodes. Searches the astronomy collection unless told "
-                "otherwise; use orcid to tell apart people who share a name."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "author": {
-                        "type": "string",
-                        "description": (
-                            "Author name, 'Lastname, F' or 'Lastname, First' "
-                            "(e.g. 'Coelho, P' matches every first name starting with P)"
-                        ),
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of results (default: 20, max: 100)",
-                        "default": 20,
-                        "minimum": 1,
-                        "maximum": 100,
-                    },
-                    "sort": {
-                        "type": "string",
-                        "description": "Sort by 'date' or 'citation_count'",
-                        "enum": ["date", "citation_count"],
-                        "default": "date",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Number of results to skip, for the next page (default: 0)",
-                        "default": 0,
-                        "minimum": 0,
-                    },
-                    **_AUTHOR_FILTERS,
-                },
-                "required": ["author"],
-            },
-            annotations=ToolAnnotations(title="Get author papers", **_READ_ONLY),
-        ),
-        Tool(
-            name="export_bibtex",
-            title="Export BibTeX",
-            description=(
-                "Export BibTeX citations for one or more papers, exactly as ADS formats them "
-                "(journal macros, volume, pages, DOI, eprint). "
-                "Accepts bibcodes, DOIs and arXiv IDs; the BibTeX key is always ADS's "
-                "current bibcode, and the result notes any that changed. "
-                "Useful for adding references to LaTeX/Quarto documents."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "bibcodes": _IDENTIFIERS,
-                },
-                "required": ["bibcodes"],
-            },
-            annotations=ToolAnnotations(title="Export BibTeX", **_READ_ONLY),
-        ),
-        Tool(
-            name="get_paper_metrics",
-            title="Get paper metrics",
-            description=(
-                "Get detailed metrics for specific papers including citation count, "
-                "reads, and impact indicators. Accepts bibcodes, DOIs and arXiv IDs. "
-                "Useful for tracking paper impact over time."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "bibcodes": _IDENTIFIERS,
-                },
-                "required": ["bibcodes"],
-            },
-            annotations=ToolAnnotations(title="Get paper metrics", **_READ_ONLY),
-        ),
-        Tool(
-            name="get_author_metrics",
-            title="Get author metrics",
-            description=(
-                "Get comprehensive metrics for an author including h-index, "
-                "total citations, paper count, and citation statistics. "
-                "Useful for CV preparation and tracking research impact. "
-                "Matches names, not people: searches the astronomy collection unless "
-                "told otherwise, and the result states the filter, so numbers can differ "
-                "from ADS's web page, which counts all collections. For a common name, "
-                "give the orcid. For a CV, refereed_only and max_authors give a figure for "
-                "the author's own work, without large collaboration papers."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "author": {
-                        "type": "string",
-                        "description": "Author name (e.g. 'Coelho, P' or 'Coelho, Paula R. T.')",
-                    },
-                    "years": {
-                        "type": "string",
-                        "description": "Optional year range (e.g., '2020-2025')",
-                    },
-                    **_AUTHOR_FILTERS,
-                },
-                "required": ["author"],
-            },
-            annotations=ToolAnnotations(title="Get author metrics", **_READ_ONLY),
-        ),
-        Tool(
-            name="list_libraries",
-            title="List libraries",
-            description=(
-                "List all your personal paper libraries/collections in ADS. "
-                "Shows library names, descriptions, and paper counts."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-            annotations=ToolAnnotations(title="List libraries", **_READ_ONLY),
-        ),
-        Tool(
-            name="get_library_papers",
-            title="Get library papers",
-            description=(
-                "Get all papers from a specific library. "
-                "Returns paper details for papers in the specified collection."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "library_id": {
-                        "type": "string",
-                        "description": "Library ID (from list_libraries)",
-                    },
-                },
-                "required": ["library_id"],
-            },
-            annotations=ToolAnnotations(title="Get library papers", **_READ_ONLY),
-        ),
-        Tool(
-            name="create_library",
-            title="Create library",
-            description=(
-                "Create a new paper library/collection in the user's ADS account. "
-                "Useful for organizing papers by topic, project, or reading status."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Name for the library (e.g., 'Stellar Populations Review')",
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Description of the library",
-                    },
-                    "public": {
-                        "type": "boolean",
-                        "description": "Whether the library should be public (default: false)",
-                        "default": False,
-                    },
-                },
-                "required": ["name"],
-            },
-            annotations=ToolAnnotations(
-                title="Create library",
-                readOnlyHint=False,
-                destructiveHint=False,
-                idempotentHint=False,
-                openWorldHint=True,
-            ),
-        ),
-        Tool(
-            name="add_to_library",
-            title="Add papers to library",
-            description=(
-                "Add papers to an existing library in the user's ADS account. "
-                "Provide library ID and list of bibcodes to add. "
-                "Papers already in the library are not duplicated."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "library_id": {
-                        "type": "string",
-                        "description": "Library ID (from list_libraries)",
-                    },
-                    "bibcodes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of bibcodes to add to the library",
-                        "minItems": 1,
-                    },
-                },
-                "required": ["library_id", "bibcodes"],
-            },
-            annotations=ToolAnnotations(
-                title="Add papers to library",
-                readOnlyHint=False,
-                destructiveHint=False,
-                idempotentHint=True,
-                openWorldHint=True,
-            ),
-        ),
-    ]
-
-
-def _author_filters(arguments: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "collection": arguments.get("collection", "astronomy"),
-        "orcid": arguments.get("orcid"),
-        "affiliation": arguments.get("affiliation"),
-        "position": arguments.get("position"),
-        "max_authors": arguments.get("max_authors"),
-        "refereed_only": arguments.get("refereed_only", False),
-    }
-
-
-@app.call_tool()
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
-    """Handle tool calls for NASA ADS operations.
-
-    Errors are raised, not returned: the MCP SDK turns an exception into a result
-    marked isError=True, so Claude can tell a failure from an answer.
-    """
-
-    if name == "search_papers":
-        return await search_papers(
-            query=arguments["query"],
-            max_results=arguments.get("max_results", 10),
-            sort=arguments.get("sort", "date"),
-            offset=arguments.get("offset", 0),
-            collection=arguments.get("collection", "all"),
-        )
-
-    elif name == "get_paper_details":
-        return await get_paper_details(bibcodes=arguments["bibcodes"])
-
-    elif name == "get_author_papers":
-        return await get_author_papers(
-            author=arguments["author"],
-            max_results=arguments.get("max_results", 20),
-            sort=arguments.get("sort", "date"),
-            offset=arguments.get("offset", 0),
-            **_author_filters(arguments),
-        )
-
-    elif name == "export_bibtex":
-        return await export_bibtex(bibcodes=arguments["bibcodes"])
-
-    elif name == "get_paper_metrics":
-        return await get_paper_metrics(bibcodes=arguments["bibcodes"])
-
-    elif name == "get_author_metrics":
-        return await get_author_metrics(
-            author=arguments["author"],
-            years=arguments.get("years"),
-            **_author_filters(arguments),
-        )
-
-    elif name == "list_libraries":
-        return await list_libraries()
-
-    elif name == "get_library_papers":
-        return await get_library_papers(library_id=arguments["library_id"])
-
-    elif name == "create_library":
-        return await create_library(
-            name=arguments["name"],
-            description=arguments.get("description", ""),
-            public=arguments.get("public", False)
-        )
-
-    elif name == "add_to_library":
-        return await add_to_library(
-            library_id=arguments["library_id"],
-            bibcodes=arguments["bibcodes"]
-        )
-
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+# The options shared by get_author_papers and get_author_metrics
+AuthorCollection = Annotated[Collection, Field(
+    description=(
+        _COLLECTION_HELP + " Default 'astronomy': common surnames otherwise bring in "
+        "biology, geoscience and other fields. Use 'all' to match ADS's web search, "
+        "or when the author's work includes physics-only papers (e.g. atomic and "
+        "molecular data). The result always states the filter and what it left out."
+    ),
+)]
+Orcid = Annotated[OptionalStr, Field(
+    description=(
+        "Optional ORCID iD (e.g. '0000-0003-1846-4826'), the best way to tell apart "
+        "people with the same name. Only papers with this ORCID recorded in ADS "
+        "(from the publisher or claimed by the author) are included, so unclaimed "
+        "older papers are left out."
+    ),
+)]
+Affiliation = Annotated[OptionalStr, Field(
+    description=(
+        "Optional affiliation words (e.g. 'Sao Paulo'). Matches the affiliation of "
+        "any author on the paper, and affiliations change over a career, so best "
+        "combined with a year range."
+    ),
+)]
+Position = Annotated[OptionalStr, Field(
+    description=(
+        "Optional author position: '1' (first author), '2' (second), or a range "
+        "such as '1-3'. Uses ADS's pos() operator on the author list."
+    ),
+)]
+# The minimum sits on int itself: on the union it would be advertised as an
+# unknown "ge" keyword instead of "minimum"
+MaxAuthors = Annotated[Annotated[int, Field(ge=1)] | SkipJsonSchema[None], Field(
+    description=(
+        "Optional: only papers with at most this many authors (e.g. 20), to leave out "
+        "large collaboration papers. The result states how many papers this removed."
+    ),
+)]
+RefereedOnly = Annotated[bool, Field(description="Optional: only refereed papers (default: false).")]
 
 
 def _showing(offset: int, shown: int, num_found: int) -> str:
@@ -814,12 +449,52 @@ def _field_scope_hint(query: str) -> str | None:
     )
 
 
+@app.tool(
+    title="Search papers",
+    description=(
+        "Search NASA ADS for papers. Each result shows title, authors, year, "
+        "citations, publication (journal, volume, page), DOI, arXiv ID and bibcode.\n\n"
+        "How ADS queries work:\n"
+        "- Every word must match. One word written differently from the record "
+        "('microns' vs 'μm', a missing hyphen) returns nothing, so search a few "
+        "distinctive words rather than a pasted full title.\n"
+        "- Fielded queries are the most reliable: author:\"Coelho, P\", "
+        "first_author:\"Coelho, P\", title:(synthetic stellar spectra) (these words, "
+        "any order), abs:(...) (title, abstract and keywords), year:2020 or "
+        "year:2018-2024, property:refereed, doi:..., bibcode:(A OR B).\n"
+        "- Quotes ask for an exact phrase, which is fragile with titles. A field "
+        "applies only to the next word or parenthesized group: in "
+        "title:Stellar populations, only 'Stellar' is searched in titles.\n"
+        "- Words combine with AND; OR and a leading minus also work.\n"
+        "- Author position: pos(author:\"Coelho, P\", 2) (second author), "
+        "pos(author:\"Coelho, P\", 1, 3) (first to third). Team size: "
+        "author_count:[1 TO 20].\n"
+        "- Citation networks: citations(bibcode:X) (papers citing X), "
+        "references(bibcode:X), similar(bibcode:X), trending(query).\n"
+        "- With a bibcode, DOI or arXiv ID in hand, use get_paper_details instead.\n"
+        "Sorted newest first by default; sort='relevance' suits topical searches. "
+        "Page through long result lists with offset."
+    ),
+    annotations=ToolAnnotations(title="Search papers", **_READ_ONLY),
+)
 async def search_papers(
-    query: str,
-    max_results: int = 10,
-    sort: str = "date",
-    offset: int = 0,
-    collection: str | None = "all",
+    query: Annotated[str, Field(
+        description="ADS query, e.g. 'title:(stellar populations) year:2020-2024'",
+    )],
+    max_results: Annotated[int, Field(
+        description="Maximum number of results to return (default: 10, max: 50)", ge=1, le=50,
+    )] = 10,
+    sort: Annotated[Literal["date", "citation_count", "relevance"], Field(
+        description="Sort order: 'date' (newest first), 'citation_count' (most cited), or 'relevance'",
+    )] = "date",
+    offset: Offset = 0,
+    collection: Annotated[Collection, Field(
+        description=(
+            _COLLECTION_HELP + " Default 'all'. 'astronomy' cuts noise from "
+            "other fields but hides physics-only papers such as atomic and "
+            "molecular data; the result states what the filter left out."
+        ),
+    )] = "all",
 ) -> list[TextContent]:
     """Search ADS for papers."""
     sort_map = {
@@ -862,7 +537,16 @@ async def search_papers(
     return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
-async def get_paper_details(bibcodes: list[str]) -> list[TextContent]:
+@app.tool(
+    title="Get paper details",
+    description=(
+        "Get full details for up to 20 papers in one call: abstract, authors, "
+        "publication (journal, volume, page), DOI, arXiv ID, keywords and citations. "
+        "Accepts bibcodes, DOIs and arXiv IDs, and says which ones ADS doesn't have."
+    ),
+    annotations=ToolAnnotations(title="Get paper details", **_READ_ONLY),
+)
+async def get_paper_details(bibcodes: Annotated[Identifiers, Field(max_length=20)]) -> list[TextContent]:
     """Get detailed information about papers, by bibcode, DOI or arXiv ID."""
     if not bibcodes:
         raise ADSError("No bibcodes provided.")
@@ -933,17 +617,35 @@ def _author_query(
     return query
 
 
+@app.tool(
+    title="Get author papers",
+    description=(
+        "Find papers by an author. Returns titles, years, publication details, "
+        "citations and bibcodes. Searches the astronomy collection unless told "
+        "otherwise; use orcid to tell apart people who share a name."
+    ),
+    annotations=ToolAnnotations(title="Get author papers", **_READ_ONLY),
+)
 async def get_author_papers(
-    author: str,
-    max_results: int = 20,
-    sort: str = "date",
-    offset: int = 0,
-    collection: str | None = "astronomy",
-    orcid: str | None = None,
-    affiliation: str | None = None,
-    position: str | int | None = None,
-    max_authors: int | None = None,
-    refereed_only: bool = False,
+    author: Annotated[str, Field(
+        description=(
+            "Author name, 'Lastname, F' or 'Lastname, First' "
+            "(e.g. 'Coelho, P' matches every first name starting with P)"
+        ),
+    )],
+    max_results: Annotated[int, Field(
+        description="Maximum number of results (default: 20, max: 100)", ge=1, le=100,
+    )] = 20,
+    sort: Annotated[Literal["date", "citation_count"], Field(
+        description="Sort by 'date' or 'citation_count'",
+    )] = "date",
+    offset: Offset = 0,
+    collection: AuthorCollection = "astronomy",
+    orcid: Orcid = None,
+    affiliation: Affiliation = None,
+    position: Position = None,
+    max_authors: MaxAuthors = None,
+    refereed_only: RefereedOnly = False,
 ) -> list[TextContent]:
     """Get papers by a specific author."""
     query = _author_query(author, orcid, affiliation, position=position)
@@ -980,7 +682,18 @@ async def get_author_papers(
     return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
-async def export_bibtex(bibcodes: list[str]) -> list[TextContent]:
+@app.tool(
+    title="Export BibTeX",
+    description=(
+        "Export BibTeX citations for one or more papers, exactly as ADS formats them "
+        "(journal macros, volume, pages, DOI, eprint). "
+        "Accepts bibcodes, DOIs and arXiv IDs; the BibTeX key is always ADS's "
+        "current bibcode, and the result notes any that changed. "
+        "Useful for adding references to LaTeX/Quarto documents."
+    ),
+    annotations=ToolAnnotations(title="Export BibTeX", **_READ_ONLY),
+)
+async def export_bibtex(bibcodes: Identifiers) -> list[TextContent]:
     """Export BibTeX citations using the ADS export service.
 
     The BibTeX is ADS's own and is passed on untouched (no _clean): ADS already
@@ -1056,7 +769,16 @@ def _format_metrics(data: dict[str, Any], indent: str = "") -> list[str]:
     return lines
 
 
-async def get_paper_metrics(bibcodes: list[str]) -> list[TextContent]:
+@app.tool(
+    title="Get paper metrics",
+    description=(
+        "Get detailed metrics for specific papers including citation count, "
+        "reads, and impact indicators. Accepts bibcodes, DOIs and arXiv IDs. "
+        "Useful for tracking paper impact over time."
+    ),
+    annotations=ToolAnnotations(title="Get paper metrics", **_READ_ONLY),
+)
+async def get_paper_metrics(bibcodes: Identifiers) -> list[TextContent]:
     """Get metrics for specific papers."""
     if not bibcodes:
         raise ADSError("No bibcodes provided.")
@@ -1077,15 +799,29 @@ async def get_paper_metrics(bibcodes: list[str]) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(header + lines + ([""] + notes if notes else [])))]
 
 
+@app.tool(
+    title="Get author metrics",
+    description=(
+        "Get comprehensive metrics for an author including h-index, "
+        "total citations, paper count, and citation statistics. "
+        "Useful for CV preparation and tracking research impact. "
+        "Matches names, not people: searches the astronomy collection unless "
+        "told otherwise, and the result states the filter, so numbers can differ "
+        "from ADS's web page, which counts all collections. For a common name, "
+        "give the orcid. For a CV, refereed_only and max_authors give a figure for "
+        "the author's own work, without large collaboration papers."
+    ),
+    annotations=ToolAnnotations(title="Get author metrics", **_READ_ONLY),
+)
 async def get_author_metrics(
-    author: str,
-    years: str | None = None,
-    collection: str | None = "astronomy",
-    orcid: str | None = None,
-    affiliation: str | None = None,
-    position: str | int | None = None,
-    max_authors: int | None = None,
-    refereed_only: bool = False,
+    author: Annotated[str, Field(description="Author name (e.g. 'Coelho, P' or 'Coelho, Paula R. T.')")],
+    years: Annotated[OptionalStr, Field(description="Optional year range (e.g., '2020-2025')")] = None,
+    collection: AuthorCollection = "astronomy",
+    orcid: Orcid = None,
+    affiliation: Affiliation = None,
+    position: Position = None,
+    max_authors: MaxAuthors = None,
+    refereed_only: RefereedOnly = False,
 ) -> list[TextContent]:
     """Get comprehensive metrics for an author."""
     query = _author_query(author, orcid, affiliation, years, position)
@@ -1110,6 +846,14 @@ async def get_author_metrics(
     return [TextContent(type="text", text="\n".join(lines))]
 
 
+@app.tool(
+    title="List libraries",
+    description=(
+        "List all your personal paper libraries/collections in ADS. "
+        "Shows library names, descriptions, and paper counts."
+    ),
+    annotations=ToolAnnotations(title="List libraries", **_READ_ONLY),
+)
 async def list_libraries() -> list[TextContent]:
     """List all user libraries."""
     data = await _api("GET", "/biblib/libraries")
@@ -1136,7 +880,15 @@ async def list_libraries() -> list[TextContent]:
 _LIBRARY_PAGE = 100
 
 
-async def get_library_papers(library_id: str) -> list[TextContent]:
+@app.tool(
+    title="Get library papers",
+    description=(
+        "Get all papers from a specific library. "
+        "Returns paper details for papers in the specified collection."
+    ),
+    annotations=ToolAnnotations(title="Get library papers", **_READ_ONLY),
+)
+async def get_library_papers(library_id: LibraryId) -> list[TextContent]:
     """Get papers from a library, reading every page of it."""
     bibcodes: list[str] = []
     metadata: dict[str, Any] = {}
@@ -1177,7 +929,25 @@ async def get_library_papers(library_id: str) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(paper_lines))]
 
 
-async def create_library(name: str, description: str = "", public: bool = False) -> list[TextContent]:
+@app.tool(
+    title="Create library",
+    description=(
+        "Create a new paper library/collection in the user's ADS account. "
+        "Useful for organizing papers by topic, project, or reading status."
+    ),
+    annotations=ToolAnnotations(
+        title="Create library",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
+async def create_library(
+    name: Annotated[str, Field(description="Name for the library (e.g., 'Stellar Populations Review')")],
+    description: Annotated[str, Field(description="Description of the library")] = "",
+    public: Annotated[bool, Field(description="Whether the library should be public (default: false)")] = False,
+) -> list[TextContent]:
     """Create a new library."""
     payload = {"name": name, "description": description, "public": public}
     data = await _api("POST", "/biblib/libraries", json=payload)
@@ -1191,7 +961,25 @@ async def create_library(name: str, description: str = "", public: bool = False)
     )]
 
 
-async def add_to_library(library_id: str, bibcodes: list[str]) -> list[TextContent]:
+@app.tool(
+    title="Add papers to library",
+    description=(
+        "Add papers to an existing library in the user's ADS account. "
+        "Provide library ID and list of bibcodes to add. "
+        "Papers already in the library are not duplicated."
+    ),
+    annotations=ToolAnnotations(
+        title="Add papers to library",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+async def add_to_library(
+    library_id: LibraryId,
+    bibcodes: Annotated[list[str], Field(description="List of bibcodes to add to the library", min_length=1)],
+) -> list[TextContent]:
     """Add papers to a library, reporting how many ADS actually added."""
     if not bibcodes:
         raise ADSError("No bibcodes provided.")
@@ -1214,25 +1002,18 @@ async def add_to_library(library_id: str, bibcodes: list[str]) -> list[TextConte
 
 
 async def main():
-    """Run the MCP server."""
-    from mcp.server.stdio import stdio_server
-
+    """Run the MCP server over stdio."""
     try:
         _get_token()
     except ADSError:
         logger.warning("No ADS token found; tools will return an error until one is set.")
 
-    async with stdio_server() as (read_stream, write_stream):
-        logger.info("NASA ADS MCP Server starting...")
-        try:
-            await app.run(
-                read_stream,
-                write_stream,
-                app.create_initialization_options(),
-            )
-        except Exception as e:
-            logger.exception(f"NASA ADS MCP Server crashed: {e}")
-            raise
+    logger.info("NASA ADS MCP Server starting...")
+    try:
+        await app.run_stdio_async()
+    except Exception as e:
+        logger.exception(f"NASA ADS MCP Server crashed: {e}")
+        raise
 
 
 if __name__ == "__main__":
