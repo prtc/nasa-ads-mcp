@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — 2026-10-09
+## 0.6.0 — 2026-10-10
 
 The server moves to version 2 of the MCP Python SDK. The tools work as before.
 
