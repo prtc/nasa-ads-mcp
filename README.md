@@ -50,6 +50,7 @@ Perfect for astronomers, astrophysicists, and researchers who want their referen
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
+  After installing, open a new terminal (or restart Claude Code) so `uv` is on your `PATH` before you install the plugin. The repository pins Python 3.13 in `.python-version`, which `uv` downloads automatically; this avoids very new Python versions that some dependencies don't have prebuilt wheels for yet.
 - **A NASA ADS API token**, free with an ADS account ([get yours here](https://ui.adsabs.harvard.edu/user/settings/token))
 
 ### Where it works
