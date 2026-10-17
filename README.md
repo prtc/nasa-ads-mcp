@@ -275,7 +275,7 @@ The server uses:
 ## Troubleshooting
 
 ### Server won't start
-1. Verify Python 3.10+ is installed: `python3 --version`
+1. Verify `uv` is on your `PATH`: `uv --version` (it fetches the Python version pinned in `.python-version` itself)
 2. Check API token is in `.env` file
 3. Ensure `uv sync` completed successfully
 4. Check Claude Desktop logs in Settings > Developer
