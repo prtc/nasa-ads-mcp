@@ -86,8 +86,11 @@ async def test_token_is_sent_as_bearer(ads):
 
 async def test_invalid_token_error(ads):
     ads(lambda r: httpx.Response(401, json={"error": "Unauthorized"}))
-    with pytest.raises(server.ADSError, match="rejected the API token"):
+    with pytest.raises(server.ADSError, match="rejected the API token") as err:
         await server.search_papers("x")
+    # Point plugin users to where they entered the token, not only to the env variable
+    assert "/plugin configure nasa-ads@nasa-ads-mcp" in str(err.value)
+    assert "~/.ads/dev_key" in str(err.value)
 
 
 async def test_rate_limit_error(ads):

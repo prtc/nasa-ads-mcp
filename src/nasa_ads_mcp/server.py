@@ -100,7 +100,13 @@ async def _api(
             raise ADSError(f"Could not reach ADS: {e}") from e
 
     if response.status_code == 401:
-        raise ADSError("ADS rejected the API token (401). Check ADS_API_TOKEN.")
+        raise ADSError(
+            "ADS rejected the API token (401). Check it at "
+            "https://ui.adsabs.harvard.edu/user/settings/token, then update it where you "
+            "entered it: in Claude Code, /plugin configure nasa-ads@nasa-ads-mcp; in Claude "
+            "Desktop, the extension's settings; otherwise ADS_API_TOKEN (or ADS_DEV_KEY) "
+            "or ~/.ads/dev_key."
+        )
     if response.status_code == 429:
         reset = response.headers.get("X-RateLimit-Reset", "unknown")
         raise ADSError(f"ADS rate limit reached (429). Limit resets at epoch time {reset}.")

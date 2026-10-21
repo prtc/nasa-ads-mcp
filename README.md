@@ -81,7 +81,13 @@ If your organization's Claude plan already provides this plugin, it's installed 
    /plugin configure nasa-ads@nasa-ads-mcp
    ```
    The token goes into your system's secure credential store. Alternatively, save it in `~/.ads/dev_key` (the file the `ads` Python package uses), and the server will find it there.
-4. **Start a new Claude Code session** and run `/mcp`: `plugin:nasa-ads:nasa-ads` should show as connected. The first start takes a few extra seconds while uv installs the server's dependencies.
+4. **Start a new Claude Code session** and run `/mcp`: `plugin:nasa-ads:nasa-ads` should show as connected. The first start can take a minute or more, while uv downloads Python 3.13 (if your computer doesn't have it) and installs the server's dependencies. Claude Code waits only 30 seconds, so `/mcp` may say "Failed to connect" the first time; give it a minute, then run `/reload-plugins` or start a new session. To do the slow part ahead of time, run `uv python install 3.13` before installing the plugin.
+
+**Skipping the permission prompts:** Claude Code asks before each tool's first use. To allow the tools for good, add rules to `permissions.allow` in your `settings.json`. The plugin's tools are named `mcp__plugin_nasa-ads_nasa-ads__<tool>`, which differs from a manual setup's `mcp__nasa-ads__<tool>`, so rules copied from a manual setup don't match. To allow every tool:
+```json
+"permissions": { "allow": ["mcp__plugin_nasa-ads_nasa-ads__*"] }
+```
+Or allow only the tools that read, so Claude still asks before `create_library` and `add_to_library` change your ADS libraries: `search_papers`, `get_paper_details`, `get_author_papers`, `export_bibtex`, `get_paper_metrics`, `get_author_metrics`, `list_libraries`, `get_library_papers`, each written as `mcp__plugin_nasa-ads_nasa-ads__search_papers` and so on.
 
 **Updating:** `claude plugin marketplace update nasa-ads-mcp`, then `claude plugin update nasa-ads@nasa-ads-mcp`.
 
@@ -280,6 +286,19 @@ The server uses:
 3. Ensure `uv sync` completed successfully
 4. Check Claude Desktop logs in Settings > Developer
 5. To keep a log file of your own, set `NASA_ADS_LOG_FILE=/path/to/nasa-ads-mcp.log` in `.env`
+
+### `Executable not found in $PATH: "uv"`
+`uv` isn't installed, or Claude Code started before it was. Install uv (see Prerequisites), then restart Claude Code (or Claude Desktop) so it sees the new `PATH`.
+
+### "Failed to connect" or "connection timed out" on the first start
+The first start downloads Python and the dependencies, which can take longer than the 30 seconds Claude Code waits. Wait a minute, then run `/reload-plugins` or start a new session.
+
+### Python download crawls (institutional networks)
+On some networks, `uv python install` (and the first start) slows to a few KB/s while a direct download from GitHub runs at full speed. Point uv at GitHub directly, once:
+```bash
+UV_PYTHON_INSTALL_MIRROR=https://github.com/astral-sh/python-build-standalone/releases/download uv python install 3.13
+```
+uv then reuses this Python, so the plugin's start needs no download.
 
 ### API errors
 1. Verify your ADS API token is valid
