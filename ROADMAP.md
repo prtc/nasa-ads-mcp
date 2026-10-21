@@ -1,6 +1,6 @@
 # Roadmap
 
-What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.6.0 (October 2026).
+What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.6.1 (October 2026).
 
 The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
 
@@ -9,9 +9,11 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
 - **Version 0.4.1** is released: a Claude Code plugin, a Claude Desktop bundle (`nasa-ads.mcpb`, attached to each release), automated tests, and student guides in English and Portuguese.
 - **Version 0.5.0** answers the first day of intensive real use (October 2026): lookups by any identifier (old bibcodes, DOIs, arXiv IDs), batch paper details, reference fields in results, LaTeX-style sub/superscripts, paging, a collection filter that always says what it removed, ORCID and affiliation for the author tools, and ADS query syntax in the search tool's description. **0.5.1**, the same day, added author position (`pos()`), `max_authors` and `refereed_only` for CV metrics, and a warning when a search field reaches only one word. See `CHANGELOG.md`.
 - **Version 0.6.0** moves the server to MCP SDK 2.x, with the same tools, parameters and descriptions as 0.5.1.
+- **Version 0.6.1** fixes installation: it pins Python 3.13 (uv had picked 3.15, which some dependencies had no wheels for yet) and documents what an Ubuntu 20.04 install ran into.
 - **Pleiad Astronomy** (the Claude Team organization) syncs the plugin from the private repository `pleiad-astronomy/plugins`, with default access "Installed by default".
 - **Checked against the live ADS API:** search, metrics (including reads), BibTeX export, and reading a 633-paper library in full.
-- **Not yet checked in real use:** the `.mcpb` bundle in an actual Claude Desktop, and whether Claude Code asks for the ADS token when the plugin arrives through the Team sync (it loads as `nasa-ads@synced`). Confirm both with the first students.
+- **Checked in Claude Desktop (macOS, October 2026):** the `.mcpb` bundle installs, asks for the token, and works. Desktop runs `uv` during the install, so the slow first setup happens in the install dialog, and it respects `.python-version`. After installing, the extension starts out disabled. The extension page's "Configure" button did nothing; the token field under Settings → Extensions works.
+- **Not yet checked in real use:** whether Claude Code asks for the ADS token when the plugin arrives through the Team sync (it loads as `nasa-ads@synced`); the bundle on Windows and Linux. Confirm with the first students.
 
 ## Next: modernize the server (Move 3)
 
@@ -62,7 +64,7 @@ Group-specific skills could live in `pleiad-astronomy/plugins`, and general ones
 - **Cowork doesn't start the plugin's server:** Cowork doesn't prompt for plugin settings, so a server that needs the token is skipped. Anthropic is merging chat and Cowork; revisit once that settles.
 - **`.python-version` pins Python 3.13** (issue #8), because new Python releases arrive before some dependencies publish wheels for them. Move the pin forward once `pydantic-core` and `rpds-py` ship wheels for a newer version, and keep the CI matrix in step.
 - **The dark-theme icon is faint at 32 px and below:** tracked in [pleiad-astronomy/visual-identity#2](https://github.com/pleiad-astronomy/visual-identity/issues/2).
-- **The `.mcpb` bundle isn't signed,** so Claude Desktop may say so at install. Signing needs a certificate; fine to leave for now. Add a line to the student guides once the actual wording on screen is known.
+- **The `.mcpb` bundle isn't signed.** Claude Desktop warns at install that the extension gets "access to everything on your computer" and that the developer information "has not been verified by Anthropic"; the student guides explain this. Signing needs a certificate; fine to leave for now.
 - **Ingrid Beloto's credit:** her name only, until she says which link (if any) she'd like next to it, here and in `pleiad-astronomy/visual-identity`.
 - **Anthropic's directory:** local servers can only be listed inside a plugin, and the directory policy requires owning the API a plugin connects to (section 3.F). ADS belongs to the ADS team, so a listing would need their involvement.
 
