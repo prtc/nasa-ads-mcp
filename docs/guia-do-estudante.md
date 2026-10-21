@@ -118,7 +118,11 @@ No macOS, no Windows ou no Linux (o aplicativo para Linux está em beta), você 
 
 1. Baixe o [`nasa-ads.mcpb`](https://github.com/prtc/nasa-ads-mcp/releases/latest/download/nasa-ads.mcpb).
 2. Dê dois cliques nele (ou arraste para a janela do Claude Desktop, ou vá em **Settings → Extensions → Advanced settings → Install Extension…**).
-3. Cole seu token do ADS quando pedir.
+3. O Claude Desktop mostra um aviso em vermelho: instalar dá à extensão "acesso a tudo no seu computador", e as informações do desenvolvedor "não foram verificadas pela Anthropic". O Desktop diz isso de toda extensão que a Anthropic não revisou. Esta só conversa com o ADS, e o código dela é aberto no GitHub. Clique em **Install**. A instalação pode levar um minuto enquanto o uv prepara as coisas.
+4. Cole seu token do ADS quando pedir.
+5. A extensão começa **Disabled** (desativada): mude para **Enabled**.
+
+Em **Settings → Extensions → NASA ADS** você pode trocar o token depois e escolher, para cada ferramenta, se o Claude pergunta antes. Uma boa escolha: deixar as 8 ferramentas de leitura sempre permitidas e manter a aprovação para as duas que mudam suas bibliotecas do ADS.
 
 Se o Claude Desktop disser que não encontra o `uv`, faça o Passo 2 e reinicie o Claude Desktop.
 
