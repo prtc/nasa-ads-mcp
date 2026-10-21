@@ -78,7 +78,7 @@ chmod 600 ~/.ads/dev_key
 
 ## Step 6: Check that it works
 
-Start a new Claude Code session and run `/mcp`. You should see `plugin:nasa-ads:nasa-ads` marked as connected. The first start takes a few extra seconds while uv installs things.
+Start a new Claude Code session and run `/mcp`. You should see `plugin:nasa-ads:nasa-ads` marked as connected. The first start can take a minute or more while uv installs things. If `/mcp` says "Failed to connect", wait a minute, then run `/reload-plugins` or start a new session.
 
 Then just ask, for example:
 

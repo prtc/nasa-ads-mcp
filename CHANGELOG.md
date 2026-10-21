@@ -3,8 +3,12 @@
 ## Unreleased
 
 ### Fixed
+- A rejected ADS token (401) now says where to update it: `/plugin configure nasa-ads@nasa-ads-mcp` in Claude Code, the extension's settings in Claude Desktop, or `ADS_API_TOKEN` / `~/.ads/dev_key`. It used to name only `ADS_API_TOKEN`, which plugin users never set (#10).
 - First installs no longer fail when `uv` picks a Python too new for some dependencies: on an Intel Mac, `uv` chose Python 3.15, for which `pydantic-core` and `rpds-py` had no prebuilt wheels yet, and building them from source failed. `.python-version` now pins Python 3.13, which `uv` downloads if needed, and a server environment already built with another Python is rebuilt on the next start (#8).
 - The README says to open a new terminal, or restart Claude Code, after installing `uv`, so it is on `PATH` before the plugin is installed.
+
+### Documentation
+- From an install on Ubuntu 20.04 (#10): the first start can exceed Claude Code's 30 s connect timeout, and what to do; how to allowlist the plugin's tools, whose names differ from a manual setup's; troubleshooting entries for a missing `uv`, a first-start timeout, and a Python download that crawls on institutional networks.
 
 ## 0.6.0 — 2026-10-10
 
