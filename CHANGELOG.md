@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- First installs no longer fail when `uv` picks a Python too new for some dependencies: on an Intel Mac, `uv` chose Python 3.15, for which `pydantic-core` and `rpds-py` had no prebuilt wheels yet, and building them from source failed. `.python-version` now pins Python 3.13, which `uv` downloads if needed, and a server environment already built with another Python is rebuilt on the next start (#8).
+- The README says to open a new terminal, or restart Claude Code, after installing `uv`, so it is on `PATH` before the plugin is installed.
+
 ## 0.6.0 — 2026-10-10
 
 The server moves to version 2 of the MCP Python SDK. The tools work as before.

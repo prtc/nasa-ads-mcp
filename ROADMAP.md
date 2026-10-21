@@ -60,6 +60,7 @@ Group-specific skills could live in `pleiad-astronomy/plugins`, and general ones
 ## Known issues and open questions
 
 - **Cowork doesn't start the plugin's server:** Cowork doesn't prompt for plugin settings, so a server that needs the token is skipped. Anthropic is merging chat and Cowork; revisit once that settles.
+- **`.python-version` pins Python 3.13** (issue #8), because new Python releases arrive before some dependencies publish wheels for them. Move the pin forward once `pydantic-core` and `rpds-py` ship wheels for a newer version, and keep the CI matrix in step.
 - **The dark-theme icon is faint at 32 px and below:** tracked in [pleiad-astronomy/visual-identity#2](https://github.com/pleiad-astronomy/visual-identity/issues/2).
 - **The `.mcpb` bundle isn't signed,** so Claude Desktop may say so at install. Signing needs a certificate; fine to leave for now. Add a line to the student guides once the actual wording on screen is known.
 - **Ingrid Beloto's credit:** her name only, until she says which link (if any) she'd like next to it, here and in `pleiad-astronomy/visual-identity`.
