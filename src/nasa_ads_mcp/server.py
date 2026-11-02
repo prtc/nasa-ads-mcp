@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import logging.handlers
 import os
 import re
 from pathlib import Path
@@ -25,10 +26,13 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 # Logging goes to stderr, which is safe for MCP: only stdout carries the protocol,
 # and Claude Desktop / Claude Code keep stderr in their MCP logs.
 # Set NASA_ADS_LOG_FILE to also write a log file (useful when chasing disconnects).
+# It is capped, so it can stay on: about 1 MB, then it starts over, keeping one old file.
 _log_handlers: list[logging.Handler] = [logging.StreamHandler()]
 _log_file = os.getenv("NASA_ADS_LOG_FILE")
 if _log_file:
-    _log_handlers.append(logging.FileHandler(os.path.expanduser(_log_file)))
+    _log_handlers.append(logging.handlers.RotatingFileHandler(
+        os.path.expanduser(_log_file), maxBytes=1_000_000, backupCount=1
+    ))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -1124,12 +1128,15 @@ async def main():
     except ADSError:
         logger.warning("No ADS token found; tools will return an error until one is set.")
 
-    logger.info("NASA ADS MCP Server starting...")
+    # The process ID tells a real restart from a client that only reconnected
+    logger.info("NASA ADS MCP Server %s starting (pid %d)", __version__, os.getpid())
     try:
         await app.run_stdio_async()
     except Exception as e:
         logger.exception(f"NASA ADS MCP Server crashed: {e}")
         raise
+    # A start with no matching stop means the process was killed
+    logger.info("NASA ADS MCP Server stopped (pid %d): the client closed the connection", os.getpid())
 
 
 if __name__ == "__main__":

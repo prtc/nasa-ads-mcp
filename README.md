@@ -13,9 +13,9 @@ This MCP server is the result of an experiment on collaborating with Claude  (An
 This MCP server exposes 10 tools for interacting with NASA ADS:
 
 ### Search & Discovery
-- **search_papers** - Search ADS with its full query syntax; results show journal, volume, page, DOI and arXiv ID, page through with `offset`, and can be limited to one collection
+- **search_papers** - Search ADS with its full query syntax; results show journal, volume, page, DOI and arXiv ID, page through with `offset`; searches the astronomy collection by default, and names the most cited papers that filter left out
 - **get_paper_details** - Abstracts and full metadata for up to 20 papers at once, by bibcode, DOI or arXiv ID
-- **get_author_papers** - Find publications by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position ("papers where I'm second author"), team size or refereed status
+- **get_author_papers** - Find publications by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position ("papers where I'm second author"), team size or refereed status; suggests the ORCID iDs recorded on the name's first-author papers
 
 ### Metrics & Analytics
 - **get_paper_metrics** - Track citations, reads, and impact for specific papers
@@ -287,7 +287,7 @@ The server uses:
 2. Check API token is in `.env` file
 3. Ensure `uv sync` completed successfully
 4. Check Claude Desktop logs in Settings > Developer
-5. To keep a log file of your own, set `NASA_ADS_LOG_FILE=/path/to/nasa-ads-mcp.log` in `.env`
+5. To keep a log file of your own, set `NASA_ADS_LOG_FILE=/path/to/nasa-ads-mcp.log` in `.env`. It records each start (with the version and process ID) and each stop, so you can tell whether a "connecting" message in Claude meant the server really restarted. It holds about 1 MB, then starts over, keeping the previous one as `.log.1`, so it's safe to leave on
 
 ### `Executable not found in $PATH: "uv"`
 `uv` isn't installed, or Claude Code started before it was. Install uv (see Prerequisites), then restart Claude Code (or Claude Desktop) so it sees the new `PATH`.
