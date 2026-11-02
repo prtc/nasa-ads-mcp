@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0 — 2026-11-02
+
+The collection filter now shows what it costs, and every tool uses the same default (#15).
+
+### Changed
+- `search_papers` searches the astronomy collection by default, like the author tools. It used to search all collections. In a chat session, Claude took the different defaults for a mistake and switched the filter off.
+- The author tools keep their astronomy default, so their counts and metrics are the same as in 0.6.1.
+
+### Added
+- Every filtered result names the most cited papers the filter left out, with year and collection, for example `"Opacity and conductivity measurements in noble gases…" (2015, physics)`. You can tell at a glance whether something relevant was lost, without widening the search and running it again. The same single query counts the papers left out and finds their titles, so the tools make no more ADS calls than before.
+- A new collection, `astronomy+physics`, for topics whose laboratory data (oscillator strengths, opacities, molecular line lists) sits only in physics. It isn't the default because physicists who share an astronomer's name come with it: for "Coelho, P", refereed papers with at most 20 authors, it raised the h-index from 30 to 37 with other people's papers.
+- `get_author_papers` and `get_author_metrics` list the ORCID iDs recorded on the name's first-author papers, and say when several iDs suggest more than one person. The suggestion is never applied, since older papers often have no iD and a shared name can carry someone else's.
+- The log file (`NASA_ADS_LOG_FILE`) records each start with the version and process ID, and each stop, to tell a real restart from a client that only reconnected (#14). It is capped at about 1 MB, keeping one older file, so it can stay on.
+
+### Fixed
+- In an ADS filter query, a bare leading minus (`fq=-(...)`) is read as if it weren't there and returns the papers it was meant to exclude. The server uses `*:* -(...)`, checked against the live API: for `author:"Pacheco, T"`, 29 included and 65 left out add up to the 94 matches.
+
+### Documentation
+- The Option 3 manual entry belongs to the computer it was written on; use the plugin on a remote host. A troubleshooting entry explains `error: No such file or directory (os error 2)` (#13).
+
 ## 0.6.1 — 2026-10-21
 
 Installation fixes from setting up the server on two more computers, an Intel Mac and an Ubuntu 20.04 workstation. The tools work as in 0.6.0.

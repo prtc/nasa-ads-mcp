@@ -1,6 +1,6 @@
 # Roadmap
 
-What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.6.1 (October 2026).
+What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.7.0 (November 2026).
 
 The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
 
@@ -10,12 +10,13 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
 - **Version 0.5.0** answers the first day of intensive real use (October 2026): lookups by any identifier (old bibcodes, DOIs, arXiv IDs), batch paper details, reference fields in results, LaTeX-style sub/superscripts, paging, a collection filter that always says what it removed, ORCID and affiliation for the author tools, and ADS query syntax in the search tool's description. **0.5.1**, the same day, added author position (`pos()`), `max_authors` and `refereed_only` for CV metrics, and a warning when a search field reaches only one word. See `CHANGELOG.md`.
 - **Version 0.6.0** moves the server to MCP SDK 2.x, with the same tools, parameters and descriptions as 0.5.1.
 - **Version 0.6.1** fixes installation: it pins Python 3.13 (uv had picked 3.15, which some dependencies had no wheels for yet) and documents what an Ubuntu 20.04 install ran into.
+- **Version 0.7.0** answers the first suggestions filed from real use (#15, #13): one default collection (`astronomy`) in every tool, the most cited papers a filter left out named in the result, an `astronomy+physics` collection, ORCID suggestions in the author tools, and a log file that can stay on.
 - **Pleiad Astronomy** (the Claude Team organization) syncs the plugin from the private repository `pleiad-astronomy/plugins`, with default access "Installed by default".
 - **Checked against the live ADS API:** search, metrics (including reads), BibTeX export, and reading a 633-paper library in full.
 - **Checked in Claude Desktop (macOS, October 2026):** the `.mcpb` bundle installs, asks for the token, and works. Desktop runs `uv` during the install, so the slow first setup happens in the install dialog, and it respects `.python-version`. After installing, the extension starts out disabled. The extension page's "Configure" button did nothing; the token field under Settings → Extensions works.
 - **Not yet checked in real use:** whether Claude Code asks for the ADS token when the plugin arrives through the Team sync (it loads as `nasa-ads@synced`); the bundle on Windows and Linux. Confirm with the first students.
 
-## Next: modernize the server (Move 3)
+## Next: grow the server (Move 3)
 
 1. **Move to MCP SDK 2.x:** done in 0.6.0. How tools work now, for whoever adds the next one:
    - A tool is an async function decorated with `@app.tool(title=..., description=..., annotations=...)`. Each parameter's description goes in `Annotated[type, Field(description=...)]`; the SDK builds the schema from that. Shared parameters have aliases in `server.py` (`Identifiers`, `Orcid`, `MaxAuthors`, ...).
@@ -27,7 +28,7 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
    - export in other ADS formats, especially AASTeX (for AAS journals) and RIS;
    - resolve a free-text reference string to a bibcode (to check a manuscript's bibliography);
    - remove papers from a library.
-4. **Author disambiguation:** 0.5.0 and 0.5.1 added `orcid`, `affiliation`, `position`, `max_authors`, `refereed_only` and a default astronomy `collection` to the author tools. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; `aff:` matches any author's affiliation, and tying it to one author would need `pos()` at the same position for both, which works only for a fixed position.
+4. **Author disambiguation:** 0.5.0 and 0.5.1 added `orcid`, `affiliation`, `position`, `max_authors`, `refereed_only` and a default astronomy `collection` to the author tools; 0.7.0 lists the ORCID iDs recorded on a name's first-author papers. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; `aff:` matches any author's affiliation, and tying it to one author would need `pos()` at the same position for both, which works only for a fixed position.
 5. **Default sort:** `search_papers` sorts by date; relevance may suit topical searches better. Try both on real questions before changing.
 
 ## Ideas backlog
@@ -61,6 +62,8 @@ Group-specific skills could live in `pleiad-astronomy/plugins`, and general ones
 
 ## Known issues and open questions
 
+- **ADS becomes SciX:** the ADS website moves to Science Explorer (SciX) on 16 November 2026; the AAS notice says the API stays the same. SciX widens ADS to more of NASA's science, which makes the astronomy default more useful, not less. Already in the API: `planetary` and `heliophysics` collections, which sit almost entirely inside `astronomy` (29 and 941 papers outside it, none from 2024, checked November 2026). To watch: whether `ui.adsabs.harvard.edu` links in results redirect after the move (`ADS_ABS_URL` in `server.py`), new collection names worth accepting, and any change to the API address or tokens.
+- **Slow or repeated "connecting"** (#14): a warm start takes about 0.5 s, so the server may not be the cause. Keep `NASA_ADS_LOG_FILE` on where it happens: a start line with a new process ID means a real restart; no new line means the client only reconnected.
 - **Cowork doesn't start the plugin's server:** Cowork doesn't prompt for plugin settings, so a server that needs the token is skipped. Anthropic is merging chat and Cowork; revisit once that settles.
 - **`.python-version` pins Python 3.13** (issue #8), because new Python releases arrive before some dependencies publish wheels for them. Move the pin forward once `pydantic-core` and `rpds-py` ship wheels for a newer version, and keep the CI matrix in step.
 - **The dark-theme icon is faint at 32 px and below:** tracked in [pleiad-astronomy/visual-identity#2](https://github.com/pleiad-astronomy/visual-identity/issues/2).

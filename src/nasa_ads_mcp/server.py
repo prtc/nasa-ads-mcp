@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import logging.handlers
 import os
 import re
 from pathlib import Path
@@ -25,10 +26,13 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 # Logging goes to stderr, which is safe for MCP: only stdout carries the protocol,
 # and Claude Desktop / Claude Code keep stderr in their MCP logs.
 # Set NASA_ADS_LOG_FILE to also write a log file (useful when chasing disconnects).
+# It is capped, so it can stay on: about 1 MB, then it starts over, keeping one old file.
 _log_handlers: list[logging.Handler] = [logging.StreamHandler()]
 _log_file = os.getenv("NASA_ADS_LOG_FILE")
 if _log_file:
-    _log_handlers.append(logging.FileHandler(os.path.expanduser(_log_file)))
+    _log_handlers.append(logging.handlers.RotatingFileHandler(
+        os.path.expanduser(_log_file), maxBytes=1_000_000, backupCount=1
+    ))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -219,8 +223,16 @@ def _reference(doc: dict[str, Any]) -> str:
 
 
 # ADS collections (its "database" field). "all" means no filter.
-Collection = Literal["astronomy", "physics", "earthscience", "general", "all"]
+# One default in every tool: when the defaults differed, Claude grew suspicious of
+# them and switched the filter off. astronomy is the safest for names (with physics,
+# other people's papers inflated an author's h-index from 30 to 37), and the papers
+# it leaves out are always named, so a physics-only paper that matters shows up.
+# ADS's planetary and heliophysics collections (from SciX) sit almost entirely
+# inside astronomy.
+Collection = Literal["astronomy", "astronomy+physics", "physics", "earthscience", "general", "all"]
 COLLECTIONS = list(get_args(Collection))
+DEFAULT_COLLECTION = "astronomy"
+_COLLECTION_QUERY = {"astronomy+physics": "collection:(astronomy OR physics)"}
 
 
 def _filters(
@@ -233,7 +245,8 @@ def _filters(
     if collection and collection != "all":
         if collection not in COLLECTIONS:
             raise ADSError(f"Unknown collection '{collection}'. Use one of: {', '.join(COLLECTIONS)}.")
-        filters.append((f"collection:{collection}", f"collection:{collection}"))
+        query = _COLLECTION_QUERY.get(collection, f"collection:{collection}")
+        filters.append((query, query))
     if max_authors is not None:
         try:
             limit = int(max_authors)
@@ -251,22 +264,114 @@ def _fq(filters: list[tuple[str, str]]) -> str | None:
     return " AND ".join(query for query, _ in filters) or None
 
 
+# How many of the papers a filter left out to name, most cited first
+LEFT_OUT_SHOWN = 3
+
+
+async def _none() -> None:
+    """Stands in for a lookup that isn't needed, in an asyncio.gather."""
+    return None
+
+
+def _short(text: str, limit: int = 80) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 async def _filter_note(q: str, filters: list[tuple[str, str]], num_found: int) -> str | None:
-    """Say what the filters left out, so their effect is never silent."""
+    """Say what the filters left out, and name the most cited of those papers.
+
+    One query asks for the papers the filters removed: its count is what was
+    left out, and its top results let the reader judge whether anything that
+    matters was lost, without widening the search and running it again.
+    """
     if not filters:
         return None
     label = ("Filter: " if len(filters) == 1 else "Filters: ") + ", ".join(d for _, d in filters)
-    total = (await _search(q=q, fl=["bibcode"], rows=0)).get("numFound", 0)
-    if total <= num_found:
+    # In an ADS filter query, a bare leading minus is read as if it weren't
+    # there; "*:* -(...)" is the form that really excludes (checked live).
+    dropped = await _search(
+        q=q,
+        fl=["title", "year", "database"],
+        rows=LEFT_OUT_SHOWN,
+        sort="citation_count desc",
+        fq=f"*:* -({_fq(filters)})",
+    )
+    left_out = dropped.get("numFound", 0)
+    total = num_found + left_out
+    if not left_out:
         return f"{label} (left out none of the {total:,} matches)."
-    left_out = total - num_found
     note = (
         f"{label}, so {num_found:,} of {total:,} matching papers are included; "
         + ("the other one is left out." if left_out == 1 else f"the other {left_out:,} are left out.")
     )
     if any(query.startswith("collection:") for query, _ in filters):
         note += " collection='all' includes other collections."
+    examples = []
+    for doc in dropped.get("docs", []):
+        where = ", ".join(filter(None, [doc.get("year"), (doc.get("database") or [None])[0]]))
+        examples.append(f'"{_short(_title(doc))}"' + (f" ({where})" if where else ""))
+    if examples:
+        heading = "Left out" if left_out <= len(examples) else "Most cited of those left out"
+        note += f"\n{heading}: " + "; ".join(examples) + "."
     return note
+
+
+# ORCID iDs to list in a suggestion, and first-author papers to read them from
+ORCIDS_SHOWN = 3
+ORCID_SAMPLE = 200
+_ORCID_FIELDS = ["orcid_pub", "orcid_user", "orcid_other"]
+
+
+async def _orcid_hint(
+    author: str,
+    affiliation: str | None,
+    years: str | None,
+    filters: list[tuple[str, str]],
+) -> str | None:
+    """Suggest the ORCID iDs found on this name's first-author papers.
+
+    Only a suggestion, never applied: older papers often have no iD recorded,
+    and a shared name can carry someone else's. ADS lists the iDs in author
+    order, so the first entry belongs to the first author.
+    """
+    query = _author_query(author, None, affiliation, years, position="1")
+    try:
+        result = await _search(
+            q=query, fl=_ORCID_FIELDS, rows=ORCID_SAMPLE, sort="date desc", fq=_fq(filters)
+        )
+    except ADSError as e:  # a suggestion must never cost the user the answer
+        logger.warning("ORCID suggestion skipped: %s", e)
+        return None
+    docs = result.get("docs", [])
+    counts: dict[str, int] = {}
+    for doc in docs:
+        ids = {(doc.get(field) or ["-"])[0] for field in _ORCID_FIELDS} - {"-", ""}
+        for orcid in ids:
+            counts[orcid] = counts.get(orcid, 0) + 1
+    if not counts:
+        return None
+    ranked = sorted(counts.items(), key=lambda item: -item[1])
+    listed = ", ".join(
+        f"{orcid} ({n} paper{'s' if n != 1 else ''})" for orcid, n in ranked[:ORCIDS_SHOWN]
+    )
+    if len(ranked) > ORCIDS_SHOWN:
+        listed += f", and {len(ranked) - ORCIDS_SHOWN} more"
+    found = result.get("numFound", len(docs))
+    papers = f"{len(docs)} paper{'s' if len(docs) != 1 else ''}"
+    if found > len(docs):
+        papers = f"the {len(docs)} most recent of {found:,} papers"
+    where = f"in {papers} with this name as first author"
+    if len(ranked) == 1:
+        opening = f"ORCID iD recorded {where}: {listed}."
+    else:
+        opening = (
+            f"Several ORCID iDs recorded {where}, so the name may belong to more "
+            f"than one person: {listed}."
+        )
+    return (
+        f"{opening} Not applied: to keep only one person's papers, confirm the iD is "
+        "theirs and pass it as orcid (papers without the iD recorded are then left out)."
+    )
 
 
 def _bare_id(identifier: str) -> str:
@@ -362,18 +467,18 @@ Offset = Annotated[int, Field(
     description="Number of results to skip, for the next page (default: 0)", ge=0,
 )]
 
-_COLLECTION_HELP = (
-    "ADS collection to search: 'astronomy', 'physics', 'earthscience', 'general', "
-    "or 'all' for no filter."
-)
-
-# The options shared by get_author_papers and get_author_metrics
-AuthorCollection = Annotated[Collection, Field(
+# The collection filter, with the same default in every tool that searches
+CollectionFilter = Annotated[Collection, Field(
     description=(
-        _COLLECTION_HELP + " Default 'astronomy': common surnames otherwise bring in "
-        "biology, geoscience and other fields. Use 'all' to match ADS's web search, "
-        "or when the author's work includes physics-only papers (e.g. atomic and "
-        "molecular data). The result always states the filter and what it left out."
+        "ADS collection to search. 'astronomy' (default): astronomy and astrophysics, "
+        "including planetary science and heliophysics. 'astronomy+physics': adds "
+        "physics-only papers, such as laboratory atomic and molecular data, "
+        "opacities and oscillator strengths; good for topics, but for author names it "
+        "brings in physicists who share the name. 'physics', 'earthscience', "
+        "'general' (biology, medicine, chemistry and everything else), or 'all' for "
+        "no filter, as on ADS's web page. The result states how many papers the "
+        "filter left out and names the most cited of them: read those before "
+        "changing the collection, and widen it only when they are relevant."
     ),
 )]
 Orcid = Annotated[OptionalStr, Field(
@@ -479,7 +584,9 @@ def _field_scope_hint(query: str) -> str | None:
         "references(bibcode:X), similar(bibcode:X), trending(query).\n"
         "- With a bibcode, DOI or arXiv ID in hand, use get_paper_details instead.\n"
         "Sorted newest first by default; sort='relevance' suits topical searches. "
-        "Page through long result lists with offset."
+        "Page through long result lists with offset. Searches the astronomy "
+        "collection unless told otherwise; the result names the most cited papers "
+        "the filter left out."
     ),
     annotations=ToolAnnotations(title="Search papers", **_READ_ONLY),
 )
@@ -494,13 +601,7 @@ async def search_papers(
         description="Sort order: 'date' (newest first), 'citation_count' (most cited), or 'relevance'",
     )] = "date",
     offset: Offset = 0,
-    collection: Annotated[Collection, Field(
-        description=(
-            _COLLECTION_HELP + " Default 'all'. 'astronomy' cuts noise from "
-            "other fields but hides physics-only papers such as atomic and "
-            "molecular data; the result states what the filter left out."
-        ),
-    )] = "all",
+    collection: CollectionFilter = DEFAULT_COLLECTION,
 ) -> list[TextContent]:
     """Search ADS for papers."""
     sort_map = {
@@ -628,7 +729,9 @@ def _author_query(
     description=(
         "Find papers by an author. Returns titles, years, publication details, "
         "citations and bibcodes. Searches the astronomy collection unless told "
-        "otherwise; use orcid to tell apart people who share a name."
+        "otherwise. Matches names, not people: the result lists the "
+        "ORCID iDs recorded on this name's first-author papers; confirm one with "
+        "the user before passing it as orcid."
     ),
     annotations=ToolAnnotations(title="Get author papers", **_READ_ONLY),
 )
@@ -646,7 +749,7 @@ async def get_author_papers(
         description="Sort by 'date' or 'citation_count'",
     )] = "date",
     offset: Offset = 0,
-    collection: AuthorCollection = "astronomy",
+    collection: CollectionFilter = DEFAULT_COLLECTION,
     orcid: Orcid = None,
     affiliation: Affiliation = None,
     position: Position = None,
@@ -667,13 +770,16 @@ async def get_author_papers(
     )
     docs = result.get("docs", [])
     num_found = result.get("numFound", len(docs))
-    note = await _filter_note(query, filters, num_found)
+    note, orcid_hint = await asyncio.gather(
+        _filter_note(query, filters, num_found),
+        _orcid_hint(author, affiliation, None, filters) if not orcid and num_found else _none(),
+    )
 
     if not docs:
         text = f"No papers found for {query}"
         if offset and num_found:
             text = f"No more results: {query} found {num_found} papers, fewer than offset={offset}."
-        return [TextContent(type="text", text="\n".join(filter(None, [text, note])))]
+        return [TextContent(type="text", text="\n".join(filter(None, [text, note, orcid_hint])))]
 
     total_citations = sum(doc.get("citation_count") or 0 for doc in docs)
     results = [
@@ -684,7 +790,9 @@ async def get_author_papers(
     ]
     header = f"Found {num_found} papers for {query}" + _showing(offset, len(docs), num_found)
     header += f" (citations of papers shown: {total_citations})"
-    lines = [header + ":", note, "", "\n".join(results), _next_page(offset, len(docs), num_found)]
+    lines = [
+        header + ":", note, orcid_hint, "", "\n".join(results), _next_page(offset, len(docs), num_found)
+    ]
     return [TextContent(type="text", text="\n".join(line for line in lines if line is not None).rstrip())]
 
 
@@ -812,17 +920,18 @@ async def get_paper_metrics(bibcodes: Identifiers) -> list[TextContent]:
         "total citations, paper count, and citation statistics. "
         "Useful for CV preparation and tracking research impact. "
         "Matches names, not people: searches the astronomy collection unless "
-        "told otherwise, and the result states the filter, so numbers can differ "
-        "from ADS's web page, which counts all collections. For a common name, "
-        "give the orcid. For a CV, refereed_only and max_authors give a figure for "
-        "the author's own work, without large collaboration papers."
+        "told otherwise, and the result states the filter, so numbers can "
+        "differ from ADS's web page, which counts all collections. For a common "
+        "name, give the orcid; the result lists the iDs recorded on the name's "
+        "first-author papers. For a CV, refereed_only and max_authors give a figure "
+        "for the author's own work, without large collaboration papers."
     ),
     annotations=ToolAnnotations(title="Get author metrics", **_READ_ONLY),
 )
 async def get_author_metrics(
     author: Annotated[str, Field(description="Author name (e.g. 'Coelho, P' or 'Coelho, Paula R. T.')")],
     years: Annotated[OptionalStr, Field(description="Optional year range (e.g., '2020-2025')")] = None,
-    collection: AuthorCollection = "astronomy",
+    collection: CollectionFilter = DEFAULT_COLLECTION,
     orcid: Orcid = None,
     affiliation: Affiliation = None,
     position: Position = None,
@@ -834,7 +943,10 @@ async def get_author_metrics(
     filters = _filters(collection, max_authors, refereed_only)
     result = await _search(q=query, fl=["bibcode"], rows=ADS_MAX_ROWS, fq=_fq(filters))
     bibcodes = [doc["bibcode"] for doc in result.get("docs", []) if doc.get("bibcode")]
-    note = await _filter_note(query, filters, result.get("numFound", len(bibcodes)))
+    note, orcid_hint = await asyncio.gather(
+        _filter_note(query, filters, result.get("numFound", len(bibcodes))),
+        _orcid_hint(author, affiliation, years, filters) if not orcid and bibcodes else _none(),
+    )
     if not bibcodes:
         return [TextContent(type="text", text="\n".join(filter(None, [f"No papers found for {query}", note])))]
 
@@ -847,6 +959,8 @@ async def get_author_metrics(
         lines.append(
             f"Note: ADS found {result['numFound']} papers; metrics use the first {len(bibcodes)}."
         )
+    if orcid_hint:
+        lines.append(orcid_hint)
     lines.append("")
     lines += _format_metrics(data, indent="  ")
     return [TextContent(type="text", text="\n".join(lines))]
@@ -1014,12 +1128,15 @@ async def main():
     except ADSError:
         logger.warning("No ADS token found; tools will return an error until one is set.")
 
-    logger.info("NASA ADS MCP Server starting...")
+    # The process ID tells a real restart from a client that only reconnected
+    logger.info("NASA ADS MCP Server %s starting (pid %d)", __version__, os.getpid())
     try:
         await app.run_stdio_async()
     except Exception as e:
         logger.exception(f"NASA ADS MCP Server crashed: {e}")
         raise
+    # A start with no matching stop means the process was killed
+    logger.info("NASA ADS MCP Server stopped (pid %d): the client closed the connection", os.getpid())
 
 
 if __name__ == "__main__":

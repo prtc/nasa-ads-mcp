@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "nasa-ads",
   "display_name": "NASA ADS",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Search the NASA Astrophysics Data System from Claude: papers, abstracts, citation metrics, BibTeX export, and your ADS libraries.",
   "long_description": "Gives Claude access to the NASA Astrophysics Data System (ADS) with your own ADS token: search papers, read abstracts, get citation and read metrics for papers and authors, export BibTeX exactly as ADS formats it, and list, create, and add to your ADS libraries. The server runs on your computer and talks only to the ADS API. A human-AI collaboration by Paula Coelho and Claude (Anthropic).",
   "author": {
@@ -51,7 +51,7 @@
   "tools": [
     {
       "name": "search_papers",
-      "description": "Search NASA ADS with full ADS query syntax. Results show title, authors, year, citations, journal, volume, page, DOI and arXiv ID, with paging and an optional collection filter."
+      "description": "Search NASA ADS with full ADS query syntax. Results show title, authors, year, citations, journal, volume, page, DOI and arXiv ID, with paging. Searches the astronomy collection by default and names the most cited papers the filter left out."
     },
     {
       "name": "get_paper_details",
@@ -59,7 +59,7 @@
     },
     {
       "name": "get_author_papers",
-      "description": "Find papers by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position (e.g. second author), team size or refereed status. The result states any filter."
+      "description": "Find papers by an author, in the astronomy collection by default, optionally by ORCID, affiliation, author position (e.g. second author), team size or refereed status. The result states any filter, names the papers it left out, and lists the ORCID iDs recorded on the name's first-author papers."
     },
     {
       "name": "export_bibtex",
@@ -71,7 +71,7 @@
     },
     {
       "name": "get_author_metrics",
-      "description": "Get an author's h-index, citations and other metrics, in the astronomy collection by default, optionally by ORCID, affiliation, author position, team size or refereed status (useful for a CV). The result states any filter."
+      "description": "Get an author's h-index, citations and other metrics, in the astronomy collection by default, optionally by ORCID, affiliation, author position, team size or refereed status (useful for a CV). The result states any filter and lists the ORCID iDs recorded on the name's first-author papers."
     },
     {
       "name": "list_libraries",
