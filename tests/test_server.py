@@ -44,6 +44,21 @@ def text_of(result):
     return result[0].text
 
 
+def kind(request):
+    """Which of the server's ADS queries this is: main, left_out, orcid or metrics."""
+    if request.url.path != "/v1/search/query":
+        return "metrics"
+    if request.url.params.get("fq", "").startswith("*:* -"):
+        return "left_out"
+    if "orcid_pub" in request.url.params.get("fl", ""):
+        return "orcid"
+    return "main"
+
+
+def of_kind(fake, name):
+    return [r for r in fake.requests if kind(r) == name]
+
+
 # --- token and errors ---------------------------------------------------------
 
 @pytest.fixture
@@ -114,16 +129,18 @@ async def test_search_papers_request_and_format(ads):
         "doi": ["10.1051/0004-6361:20053511", "10.48550/arXiv.astro-ph/0505511"],
         "identifier": ["2005A&A...443..735C", "arXiv:astro-ph/0505511", "2005astro.ph..5511C"],
     }]
-    fake = ads(lambda r: search_response(docs, num_found=42))
+    fake = ads(lambda r: search_response(docs, num_found=42) if kind(r) == "main" else search_response([]))
     text = text_of(await server.search_papers("stellar spectra", max_results=500, sort="relevance"))
 
-    assert len(fake.requests) == 1  # no collection filter, so no count to compare against
     params = fake.requests[0].url.params
     assert fake.requests[0].url.path == "/v1/search/query"
     assert params["q"] == "stellar spectra"
     assert params["rows"] == "50"  # clamped to the maximum
     assert params["sort"] == "score desc"
-    assert "fq" not in params and "start" not in params
+    # astronomy by default, as in the author tools, and it left out nothing here
+    assert params["fq"] == "collection:astronomy" and "start" not in params
+    assert len(fake.requests) == 2  # the main search and the left-out check
+    assert "left out none of the 42 matches" in text
     assert "Found 42 papers" in text and "showing 1)" in text
     assert "et al. (4 authors)" in text
     assert "2005A&A...443..735C" in text
@@ -157,19 +174,52 @@ async def test_search_papers_no_results_explains_ads_matching(ads):
     assert "every word to match" in text and "title:(...)" in text
 
 
-async def test_search_papers_collection_filter_says_what_it_left_out(ads):
+LEFT_OUT = [
+    {"title": ["Opacity measurements in noble gases at conditions of planetary interiors"],
+     "year": "2015", "database": ["physics"]},
+    {"title": ["Fine and hyperfine resolved energy levels of VO"], "year": "2022", "database": ["physics"]},
+    {"title": ["Female development disorders"], "database": ["general"]},
+]
+
+
+async def test_search_papers_collection_filter_names_what_it_left_out(ads):
     def handler(request):
-        if "fq" in request.url.params:
-            return search_response([{"bibcode": "b1", "title": ["T"]}], num_found=448)
-        return search_response([], num_found=8132)
+        if kind(request) == "left_out":
+            return search_response(LEFT_OUT, num_found=7684)
+        return search_response([{"bibcode": "b1", "title": ["T"]}], num_found=448)
 
     fake = ads(handler)
-    text = text_of(await server.search_papers('author:"Silva, A."', collection="astronomy"))
-    assert fake.requests[0].url.params["fq"] == "collection:astronomy"
-    assert fake.requests[1].url.params["q"] == 'author:"Silva, A."'
-    assert "Filter: collection:astronomy" in text
+    text = text_of(await server.search_papers('author:"Silva, A."', collection="physics"))
+    assert fake.requests[0].url.params["fq"] == "collection:physics"
+    # one query gives both the count and the most cited of the papers left out;
+    # a bare "-(...)" would be read by ADS as if the minus weren't there
+    left_out = of_kind(fake, "left_out")[0].url.params
+    assert left_out["q"] == 'author:"Silva, A."'
+    assert left_out["fq"] == "*:* -(collection:physics)"
+    assert left_out["sort"] == "citation_count desc" and left_out["rows"] == "3"
+    assert "Filter: collection:physics" in text
     assert "448 of 8,132" in text and "the other 7,684 are left out" in text
     assert "collection='all' includes other collections" in text
+    assert ('Most cited of those left out: "Opacity measurements in noble gases at conditions '
+            'of planetary interiors" (2015, physics); "Fine and hyperfine') in text
+    assert '"Female development disorders" (general).' in text
+
+
+async def test_left_out_titles_are_shortened_and_all_named_when_few(ads):
+    long_title = {"title": ["A" * 120], "year": "2020", "database": ["general"]}
+    ads(lambda r: search_response([long_title], num_found=1) if kind(r) == "left_out"
+        else search_response([{"bibcode": "b1", "title": ["T"]}], num_found=5))
+    text = text_of(await server.search_papers("x"))
+    assert "Left out: \"" + "A" * 79 + "…\" (2020, general)." in text
+    assert "Most cited" not in text  # every paper left out is named
+
+
+async def test_astronomy_plus_physics(ads):
+    fake = ads(lambda r: search_response([{"bibcode": "b1", "title": ["T"]}]))
+    text = text_of(await server.search_papers("opacity", collection="astronomy+physics"))
+    assert fake.requests[0].url.params["fq"] == "collection:(astronomy OR physics)"
+    assert of_kind(fake, "left_out")[0].url.params["fq"] == "*:* -(collection:(astronomy OR physics))"
+    assert "Filter: collection:(astronomy OR physics)" in text
 
 
 async def test_search_papers_warns_when_a_field_reaches_one_word(ads):
@@ -202,9 +252,9 @@ async def test_unknown_collection_is_an_error(ads):
 
 async def test_author_papers_query(ads):
     def handler(request):
-        if "fq" in request.url.params:
-            return search_response([{"bibcode": "b1", "title": ["T"], "year": "2020", "citation_count": 5}])
-        return search_response([], num_found=3)
+        if kind(request) == "left_out":
+            return search_response([], num_found=2)
+        return search_response([{"bibcode": "b1", "title": ["T"], "year": "2020", "citation_count": 5}])
 
     fake = ads(handler)
     text = text_of(await server.get_author_papers("Coelho, P.", sort="citation_count"))
@@ -214,6 +264,71 @@ async def test_author_papers_query(ads):
     assert fake.requests[0].url.params["fq"] == "collection:astronomy"
     assert "Filter: collection:astronomy" in text and "1 of 3" in text
     assert "citations of papers shown: 5" in text
+
+
+ORCID_DOCS = [
+    # ADS lists the iDs in author order; "-" where none is recorded
+    {"orcid_pub": ["0000-0003-1846-4826", "-"], "orcid_user": ["0000-0003-1846-4826", "-"]},
+    {"orcid_pub": ["-", "0000-0009-9999-9999"], "orcid_user": ["0000-0003-1846-4826", "-"]},
+    {"orcid_pub": ["-"], "orcid_other": ["0000-0002-0000-0001"]},
+    {"orcid_pub": ["-"]},
+]
+
+
+async def test_author_papers_suggests_orcids_without_applying_them(ads):
+    def handler(request):
+        if kind(request) == "orcid":
+            return search_response(ORCID_DOCS, num_found=4)
+        if kind(request) == "left_out":
+            return search_response([])
+        return search_response([{"bibcode": "b1", "title": ["T"]}])
+
+    fake = ads(handler)
+    text = text_of(await server.get_author_papers("Coelho, P", affiliation="Sao Paulo"))
+    orcid = of_kind(fake, "orcid")[0].url.params
+    # first-author papers, with the same affiliation and filter as the search
+    assert orcid["q"] == 'pos(author:"Coelho, P", 1) aff:"Sao Paulo"'
+    assert orcid["fq"] == "collection:astronomy"
+    # each paper counts once per iD, and only the first author's iDs count
+    assert ("Several ORCID iDs recorded in 4 papers with this name as first author, so the "
+            "name may belong to more than one person: 0000-0003-1846-4826 (2 papers), "
+            "0000-0002-0000-0001 (1 paper).") in text
+    assert "0000-0009-9999-9999" not in text
+    assert "Not applied" in text
+    # the main search is untouched
+    assert "orcid" not in fake.requests[0].url.params["q"]
+
+
+async def test_one_orcid_and_a_partial_sample(ads):
+    def handler(request):
+        if kind(request) == "orcid":
+            return search_response(ORCID_DOCS[:1], num_found=340)
+        return search_response([{"bibcode": "b1", "title": ["T"]}])
+
+    ads(handler)
+    text = text_of(await server.get_author_papers("Coelho, P", collection="all"))
+    assert ("ORCID iD recorded in the 1 most recent of 340 papers with this name as first "
+            "author: 0000-0003-1846-4826 (1 paper).") in text
+
+
+async def test_no_orcid_suggestion_when_none_recorded_or_one_given(ads):
+    fake = ads(lambda r: search_response([{"bibcode": "b1", "title": ["T"]}]))
+    text = text_of(await server.get_author_papers("Coelho, P", collection="all"))
+    assert len(of_kind(fake, "orcid")) == 1 and "ORCID" not in text
+    fake = ads(lambda r: search_response([{"bibcode": "b1", "title": ["T"]}]))
+    await server.get_author_papers("Coelho, P", collection="all", orcid="0000-0003-1846-4826")
+    assert not of_kind(fake, "orcid")
+
+
+async def test_failed_orcid_suggestion_never_costs_the_answer(ads):
+    def handler(request):
+        if kind(request) == "orcid":
+            return httpx.Response(500, json={"error": "boom"})
+        return search_response([{"bibcode": "b1", "title": ["T"]}])
+
+    ads(handler)
+    text = text_of(await server.get_author_papers("Coelho, P", collection="all"))
+    assert "Found 1 papers" in text and "ORCID" not in text
 
 
 async def test_author_papers_orcid_affiliation_and_no_filter(ads):
@@ -380,17 +495,19 @@ async def test_paper_metrics_reads_come_from_basic_stats(ads):
 
 async def test_author_metrics_notes_truncation(ads):
     def handler(request):
-        if request.url.path == "/v1/search/query":
-            if "fq" in request.url.params:
-                return search_response([{"bibcode": "a"}, {"bibcode": "b"}], num_found=2500)
-            return search_response([], num_found=9000)
-        return httpx.Response(200, json=METRICS)
+        return {
+            "metrics": lambda: httpx.Response(200, json=METRICS),
+            "left_out": lambda: search_response([], num_found=6500),
+            "orcid": lambda: search_response([]),
+            "main": lambda: search_response([{"bibcode": "a"}, {"bibcode": "b"}], num_found=2500),
+        }[kind(request)]()
 
     fake = ads(handler)
     text = text_of(await server.get_author_metrics("Coelho, P.", years="2020-2025"))
     assert fake.requests[0].url.params["q"] == 'author:"Coelho, P." year:2020-2025'
     assert fake.requests[0].url.params["fq"] == "collection:astronomy"
-    assert json.loads(fake.requests[2].content) == {"bibcodes": ["a", "b"]}
+    assert json.loads(of_kind(fake, "metrics")[0].content) == {"bibcodes": ["a", "b"]}
+    assert of_kind(fake, "orcid")[0].url.params["q"] == 'pos(author:"Coelho, P.", 1) year:2020-2025'
     assert "ADS found 2500 papers" in text
     # the h-index never silently disagrees with ADS's web page
     assert "2,500 of 9,000" in text and "applies none of these filters" in text
@@ -399,11 +516,11 @@ async def test_author_metrics_notes_truncation(ads):
 
 async def test_author_metrics_for_a_cv(ads):
     def handler(request):
-        if request.url.path == "/v1/search/query":
-            if "fq" in request.url.params:
-                return search_response([{"bibcode": "a"}], num_found=72)
-            return search_response([], num_found=164)
-        return httpx.Response(200, json=METRICS)
+        if kind(request) == "metrics":
+            return httpx.Response(200, json=METRICS)
+        if kind(request) == "left_out":
+            return search_response([], num_found=92)
+        return search_response([{"bibcode": "a"}], num_found=72)
 
     fake = ads(handler)
     text = text_of(await server.get_author_metrics(
@@ -414,6 +531,10 @@ async def test_author_metrics_for_a_cv(ads):
     assert params["fq"] == "collection:astronomy AND author_count:[1 TO 20] AND property:refereed"
     assert "Filters: collection:astronomy, at most 20 authors, refereed only" in text
     assert "72 of 164" in text and "the other 92 are left out" in text
+    assert not of_kind(fake, "orcid")  # the ORCID was given
+    assert of_kind(fake, "left_out")[0].url.params["fq"] == (
+        "*:* -(collection:astronomy AND author_count:[1 TO 20] AND property:refereed)"
+    )
 
 
 def test_author_position():
@@ -436,13 +557,14 @@ async def test_bad_max_authors_is_an_error(ads):
 
 async def test_filter_note_with_one_paper_left_out(ads):
     def handler(request):
-        if "fq" in request.url.params:
-            return search_response([{"bibcode": "b1", "title": ["T"]}], num_found=32)
-        return search_response([], num_found=33)
+        if kind(request) == "left_out":
+            return search_response([{"title": ["Gone"], "year": "2001"}], num_found=1)
+        return search_response([{"bibcode": "b1", "title": ["T"]}], num_found=32)
 
     ads(handler)
     text = text_of(await server.get_author_papers("Coelho, P", position="2"))
     assert "32 of 33" in text and "the other one is left out" in text
+    assert 'Left out: "Gone" (2001).' in text
 
 
 async def test_author_metrics_without_filter(ads):
@@ -454,7 +576,7 @@ async def test_author_metrics_without_filter(ads):
     fake = ads(handler)
     text = text_of(await server.get_author_metrics("Coelho, P", collection="all"))
     assert "fq" not in fake.requests[0].url.params
-    assert len(fake.requests) == 2 and "Filter" not in text
+    assert not of_kind(fake, "left_out") and "Filter" not in text
 
 
 # --- libraries -----------------------------------------------------------------
