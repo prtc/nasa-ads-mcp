@@ -173,7 +173,7 @@ Add this entry to the `mcpServers` section:
 
 Replace `/absolute/path/to/nasa-ads-mcp` with the actual path to where you cloned the repository.
 
-This entry belongs to the computer it's written on: the path exists only there. If you also use Claude Code on another machine (a remote host over SSH, say), install the plugin there instead (Option 1). The Claude desktop app can pass this entry on to a session on the other machine, where it fails with `No such file or directory (os error 2)`; see [Troubleshooting](#error-no-such-file-or-directory-os-error-2). Once the plugin is installed wherever you use Claude Code, consider removing this entry, or replacing it with the one-click bundle (Option 2), so Claude doesn't see the server twice.
+This entry belongs to the computer it's written on: the path exists only there. If you also use Claude Code on another machine (a remote host over SSH, say), install the plugin there instead (Option 1). The Claude desktop app can pass this entry on to a session on the other machine, where it fails with `No such file or directory (os error 2)`; see [Troubleshooting](#error-no-such-file-or-directory-os-error-2). Once the plugin is installed wherever you use Claude Code, consider removing this entry, so Claude doesn't see the server twice. (Whether the desktop app also passes the one-click bundle, Option 2, on to remote sessions hasn't been checked yet.)
 
 5. **Restart Claude Desktop**
 
@@ -303,7 +303,7 @@ UV_PYTHON_INSTALL_MIRROR=https://github.com/astral-sh/python-build-standalone/re
 uv then reuses this Python, so the plugin's start needs no download.
 
 ### `error: No such file or directory (os error 2)`
-`uv` couldn't find the folder named after `--directory` in a manual entry (Option 3). uv doesn't say which path it tried. Usually the entry was written on another computer: the Claude desktop app can pass the entries in its `claude_desktop_config.json` to a Claude Code session on a remote host, where a path like `/Users/<you>/...` doesn't exist. The message then reads "Couldn't start on <host>" and "Added in the Claude desktop app on this computer". On the remote host, use the plugin (Option 1), and remove the manual entry from the desktop app's config, or replace it with the bundle (Option 2), so the two don't compete. If the error appears on the computer that holds the clone, check that the path in the entry is absolute and still points at the clone.
+`uv` couldn't find the folder named after `--directory` in a manual entry (Option 3). uv doesn't say which path it tried. Usually the entry was written on another computer: the Claude desktop app can pass the entries in its `claude_desktop_config.json` to a Claude Code session on a remote host, where a path like `/Users/<you>/...` doesn't exist. The message then reads "Couldn't start on <host>" and "Added in the Claude desktop app on this computer". On the remote host, use the plugin (Option 1), and remove the manual entry from the desktop app's config, so the two don't compete. If the error appears on the computer that holds the clone, check that the path in the entry is absolute and still points at the clone.
 
 ### API errors
 1. Verify your ADS API token is valid
