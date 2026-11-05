@@ -10,7 +10,7 @@ This MCP server is the result of an experiment on collaborating with Claude  (An
 
 ## Features
 
-This MCP server exposes 10 tools for interacting with NASA ADS:
+This MCP server exposes 11 tools for interacting with NASA ADS:
 
 ### Search & Discovery
 - **search_papers** - Search ADS with its full query syntax; results show journal, volume, page, DOI and arXiv ID, page through with `offset`; searches the astronomy collection by default, and names the most cited papers that filter left out
@@ -22,6 +22,7 @@ This MCP server exposes 10 tools for interacting with NASA ADS:
 - **get_author_metrics** - Calculate h-index, citation statistics, and research impact, with the same options (e.g. refereed papers with at most 20 authors, for a CV)
 
 ### Reference Management
+- **check_references** - Check a manuscript's bibliography against ADS: finds each reference's bibcode, flags typos and wrong matches (first author, year, page), and lists what ADS can't find
 - **export_bibtex** - Export properly formatted BibTeX citations
 - **list_libraries** - View your personal ADS paper collections
 - **get_library_papers** - Access papers from specific libraries
@@ -87,7 +88,7 @@ If your organization's Claude plan already provides this plugin, it's installed 
 ```json
 "permissions": { "allow": ["mcp__plugin_nasa-ads_nasa-ads__*"] }
 ```
-Or allow only the tools that read, so Claude still asks before `create_library` and `add_to_library` change your ADS libraries: `search_papers`, `get_paper_details`, `get_author_papers`, `export_bibtex`, `get_paper_metrics`, `get_author_metrics`, `list_libraries`, `get_library_papers`, each written as `mcp__plugin_nasa-ads_nasa-ads__search_papers` and so on.
+Or allow only the tools that read, so Claude still asks before `create_library` and `add_to_library` change your ADS libraries: `search_papers`, `get_paper_details`, `get_author_papers`, `export_bibtex`, `get_paper_metrics`, `get_author_metrics`, `check_references`, `list_libraries`, `get_library_papers`, each written as `mcp__plugin_nasa-ads_nasa-ads__search_papers` and so on.
 
 **Updating:** `claude plugin marketplace update nasa-ads-mcp`, then `claude plugin update nasa-ads@nasa-ads-mcp`.
 
@@ -199,6 +200,7 @@ Once connected, you can interact with ADS through natural language in Claude:
 
 ### Reference Management
 ```
+"Check the references in my manuscript's bibliography against ADS: [paste the list]"
 "Export BibTeX for these 5 papers: [bibcodes]"
 "Show me what's in my 'Stellar Spectral Libraries' collection"
 "Create a new library called 'Review Paper References'"

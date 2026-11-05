@@ -1,6 +1,6 @@
 # Roadmap
 
-What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.7.0 (November 2026).
+What's next for this project, what's known to be unfinished, and how releases work. Written so a future session, human or Claude, can pick up without anyone's memory. Last updated for version 0.8.0 (November 2026).
 
 The guiding principle, from our first list of ideas (November 2025): *the goal isn't to implement everything at once, but to respond to actual user needs.* Now that the Pleiad students have the plugin, watch which questions they ask, which queries fail or feel awkward, and what they request.
 
@@ -11,6 +11,7 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
 - **Version 0.6.0** moves the server to MCP SDK 2.x, with the same tools, parameters and descriptions as 0.5.1.
 - **Version 0.6.1** fixes installation: it pins Python 3.13 (uv had picked 3.15, which some dependencies had no wheels for yet) and documents what an Ubuntu 20.04 install ran into.
 - **Version 0.7.0** answers the first suggestions filed from real use (#15, #13): one default collection (`astronomy`) in every tool, the most cited papers a filter left out named in the result, an `astronomy+physics` collection, ORCID suggestions in the author tools, and a log file that can stay on.
+- **Version 0.8.0** adds `check_references`, which resolves a manuscript's references to bibcodes and flags typos and wrong matches.
 - **Pleiad Astronomy** (the Claude Team organization) syncs the plugin from the private repository `pleiad-astronomy/plugins`, with default access "Installed by default".
 - **Checked against the live ADS API:** search, metrics (including reads), BibTeX export, and reading a 633-paper library in full.
 - **Checked in Claude Desktop (macOS, October 2026):** the `.mcpb` bundle installs, asks for the token, and works. Desktop runs `uv` during the install, so the slow first setup happens in the install dialog, and it respects `.python-version`. After installing, the extension starts out disabled. The extension page's "Configure" button did nothing; the token field under Settings → Extensions works.
@@ -26,7 +27,7 @@ The guiding principle, from our first list of ideas (November 2025): *the goal i
 3. **New tools**, roughly by value:
    - citations and references of a paper (dedicated tools, easier for Claude than the operators);
    - export in other ADS formats, especially AASTeX (for AAS journals) and RIS;
-   - resolve a free-text reference string to a bibcode (to check a manuscript's bibliography);
+   - resolve a free-text reference string to a bibcode: done in 0.8.0 (`check_references`). The next step is the bibliography skill (Move 4), e.g. reading a `.bib` or the reference list of a `.tex` file;
    - remove papers from a library.
 4. **Author disambiguation:** 0.5.0 and 0.5.1 added `orcid`, `affiliation`, `position`, `max_authors`, `refereed_only` and a default astronomy `collection` to the author tools; 0.7.0 lists the ORCID iDs recorded on a name's first-author papers. Still open: ORCID only finds papers where it was recorded, so older unclaimed papers drop out; `aff:` matches any author's affiliation, and tying it to one author would need `pos()` at the same position for both, which works only for a fixed position.
 5. **Default sort:** `search_papers` sorts by date; relevance may suit topical searches better. Try both on real questions before changing.

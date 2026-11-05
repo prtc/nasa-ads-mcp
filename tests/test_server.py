@@ -1,6 +1,7 @@
 """Tests for the NASA ADS MCP server, using simulated ADS responses (no network, no token)."""
 
 import json
+import re
 
 import httpx
 import pytest
@@ -579,6 +580,111 @@ async def test_author_metrics_without_filter(ads):
     assert not of_kind(fake, "left_out") and "Filter" not in text
 
 
+# --- references ----------------------------------------------------------------
+
+RECORDS = {
+    "2014MNRAS.440.1027C": {"first_author": "Coelho, P. R. T.", "year": "2014", "volume": "440",
+                            "page": ["1027"], "title": ["A new library of theoretical stellar spectra"]},
+    "2021A&A...650A..34L": {"first_author": "Lançon, Ariane", "year": "2021", "volume": "650",
+                            "page": ["A34"], "title": ["A comparison of stellar spectral libraries"]},
+    "2022ArRMA.244..253G": {"first_author": "Giga, Yoshikazu", "year": "2022", "volume": "244",
+                            "page": ["253"], "title": ["Continuity of derivatives"]},
+    "2023A&A...674A...1G": {"first_author": "Gaia Collaboration", "year": "2023", "volume": "674",
+                            "page": ["A1"], "title": ["Gaia Data Release 3"]},
+}
+
+
+def resolver(answers):
+    """A fake ADS: the reference resolver answers from {reference: (score, bibcode)}."""
+    def handler(request):
+        if request.url.path == "/v1/reference/text":
+            batch = json.loads(request.content)["reference"]
+            return httpx.Response(200, json={"resolved": [
+                {"refstring": r, "score": answers.get(r, ("0.0", None))[0],
+                 "bibcode": answers.get(r, ("0.0", None))[1] or "..................."}
+                for r in batch
+            ]})
+        wanted = re.findall(r'"([^"]+)"', request.url.params["q"])
+        docs = [{"bibcode": b, "identifier": [b], **RECORDS[b]} for b in wanted if b in RECORDS]
+        return search_response(docs)
+    return handler
+
+
+async def test_check_references_sorts_matches_typos_and_misses(ads):
+    refs = [
+        "Lancon A., Gonneau A., et al. 2021, A&A, 650, A34",  # no cedilla in the reference
+        "Coelho P. R. T., 2014, MNRAS, 440, 1072",  # page typo
+        "Lançon A. et al., 2021, arXiv:2108.10049",  # wrong arXiv number, score 1.0
+        "Gaia Collaboration 2023, A&A 674, A1",
+        "Coelho, Paula. Beyond the solar fundamental parameters. Monthly Notices 2020",
+    ]
+    fake = ads(resolver({
+        refs[0]: ("1.0", "2021A&A...650A..34L"),
+        refs[1]: ("0.8", "2014MNRAS.440.1027C"),
+        refs[2]: ("1.0", "2022ArRMA.244..253G"),
+        refs[3]: ("0.8", "2023A&A...674A...1G"),
+    }))
+    text = text_of(await server.check_references(refs))
+
+    call = fake.requests[0]
+    assert call.method == "POST" and json.loads(call.content) == {"reference": refs}
+    assert call.headers["Accept"] == "application/json"  # ADS answers in plain text otherwise
+    assert "Checked 5 references: 2 match ADS, 2 to check, 1 not found." in text
+    assert '1. OK 2021A&A...650A..34L: Lançon, Ariane 2021, "A comparison' in text
+    assert "In ADS, the page is 1027 (resolver score 0.8)." in text
+    assert "In ADS, the first author is Giga, Yoshikazu; the year is 2022 (resolver score 1.0)." in text
+    assert "4. OK 2023A&A...674A...1G: Gaia Collaboration 2023" in text
+    assert "5. NOT FOUND: Coelho, Paula." in text and "search_papers" in text
+    # only the matches are offered for BibTeX; a wrong match must be confirmed first
+    assert "Bibcodes that match, for export_bibtex: 2021A&A...650A..34L, 2023A&A...674A...1G" in text
+    assert "confirm each with the user" in text
+
+
+async def test_check_references_batches_a_long_bibliography(ads):
+    refs = [f"Salpeter E. E., 1955, ApJ, 121, {161 + i}" for i in range(60)]
+    fake = ads(resolver({}))
+    text = text_of(await server.check_references(refs))
+    batches = [json.loads(r.content)["reference"] for r in fake.requests
+               if r.url.path == "/v1/reference/text"]
+    assert [len(b) for b in batches] == [25, 25, 10]
+    assert sum(batches, []) == refs  # every reference once, in order
+    assert "60 not found" in text and "60. NOT FOUND: Salpeter E. E., 1955, ApJ, 121, 220" in text
+
+
+async def test_check_references_pairs_answers_by_text_if_ads_skips_one(ads):
+    def handler(request):
+        if request.url.path == "/v1/reference/text":
+            return httpx.Response(200, json={"resolved": [
+                {"refstring": "Coelho P. R. T., 2014, MNRAS, 440, 1027", "score": "1.0",
+                 "bibcode": "2014MNRAS.440.1027C"},
+            ]})
+        return search_response([{"bibcode": "2014MNRAS.440.1027C",
+                                 "identifier": ["2014MNRAS.440.1027C"],
+                                 **RECORDS["2014MNRAS.440.1027C"]}])
+
+    ads(handler)
+    text = text_of(await server.check_references(["Unparseable", "Coelho P. R. T., 2014, MNRAS, 440, 1027"]))
+    assert "1. NOT FOUND: Unparseable" in text and "2. OK 2014MNRAS.440.1027C" in text
+
+
+async def test_check_references_limits(ads):
+    ads(resolver({}))
+    with pytest.raises(server.ADSError, match="No references"):
+        await server.check_references(["  ", ""])
+    with pytest.raises(server.ADSError, match="At most 100"):
+        await server.check_references(["x"] * 101)
+
+
+def test_reference_differences():
+    differences = server._differences
+    record = RECORDS["2014MNRAS.440.1027C"]
+    assert differences("Coelho P., 2014, MNRAS, 440, 1027", record) == []
+    # a page is only compared when the reference gives the volume
+    assert differences("Coelho P., 2014, MNRAS", record) == []
+    assert differences("Coelho P., 2013, MNRAS, 440, 1027", record) == ["year is 2014"]
+    assert differences("Barbuy B., 2014, MNRAS, 440, 1027", record) == ["first author is Coelho, P. R. T."]
+
+
 # --- libraries -----------------------------------------------------------------
 
 async def test_library_papers_reads_every_page_in_order(ads):
@@ -648,7 +754,7 @@ async def test_create_library(ads):
 async def test_every_tool_has_title_and_annotations():
     async with Client(server.app) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 10
+    assert len(tools) == 11
     for tool in tools:
         assert tool.title, tool.name
         assert tool.annotations is not None, tool.name

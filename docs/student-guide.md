@@ -108,6 +108,7 @@ The tools fetch real records from ADS, but Claude writes the summaries, and summ
 
 - **Check before you cite.** Open the ADS page of any paper you plan to cite, and read at least the abstract yourself.
 - **Get BibTeX from the tool,** never typed by Claude from memory. The `export_bibtex` tool returns exactly what ADS exports.
+- **Check your bibliography before you submit.** Paste your reference list and ask Claude to check it against ADS. The `check_references` tool marks each reference OK, CHECK (it found a paper, but the first author, year or page differ, which is either a typo in your reference or the wrong paper), or NOT FOUND. Look at every CHECK yourself.
 - **Author metrics match names, not people.** A common name can pull in other people's papers. Every tool searches the astronomy collection by default, says so in every result, and names the most cited papers the filter left out, so you can see whether you need a wider collection (`astronomy+physics` keeps laboratory data such as oscillator strengths). The author tools also list the ORCID iDs found on the name's first-author papers: give yours to count only your own papers. For a CV, ask for refereed papers only, or papers with at most, say, 20 authors, so large collaboration papers don't dominate.
 - **Libraries are your real ADS libraries.** Creating one or adding papers changes your ADS account. Claude asks before it does.
 - **Your token is yours.** Everything the tools do happens under your ADS account and counts against your daily ADS limit.
