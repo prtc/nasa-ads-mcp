@@ -9,6 +9,9 @@ A new tool for checking a manuscript's bibliography.
 - CHECK means the resolver found a paper, but its first author, year or page differs from the reference. ADS's resolver forgives typos (a reference with page 1072 finds the paper on page 1027) and trusts identifiers (a wrong arXiv number found a mathematics paper with full confidence), so the tool shows both, and leaves the CHECK papers out of the list for `export_bibtex`.
 - The resolver allows 100 requests a day and takes about 0.65 s per reference, so a long bibliography is sent in batches of 25 at once (100 references: 4 requests, about 16 s).
 
+### Fixed
+- A successful response from ADS that isn't JSON (a maintenance page, or a service answering in plain text) now gives a readable error instead of the bare "Error executing tool", and no longer makes an author search fail when only its optional ORCID suggestion got such an answer. Found by Copilot's review of the 0.7.0 pull request.
+
 ## 0.7.0 — 2026-11-02
 
 The collection filter now shows what it costs, and every tool uses the same default (#15).

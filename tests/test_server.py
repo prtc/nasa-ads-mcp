@@ -321,6 +321,23 @@ async def test_no_orcid_suggestion_when_none_recorded_or_one_given(ads):
     assert not of_kind(fake, "orcid")
 
 
+async def test_a_non_json_answer_is_a_readable_error(ads):
+    ads(lambda r: httpx.Response(200, text="<html>Down for maintenance</html>"))
+    with pytest.raises(server.ADSError, match="something other than JSON"):
+        await server.search_papers("x")
+
+
+async def test_non_json_orcid_answer_never_costs_the_answer(ads):
+    def handler(request):
+        if kind(request) == "orcid":
+            return httpx.Response(200, text="<html>Down for maintenance</html>")
+        return search_response([{"bibcode": "b1", "title": ["T"]}])
+
+    ads(handler)
+    text = text_of(await server.get_author_papers("Coelho, P", collection="all"))
+    assert "Found 1 papers" in text and "ORCID" not in text
+
+
 async def test_failed_orcid_suggestion_never_costs_the_answer(ads):
     def handler(request):
         if kind(request) == "orcid":
