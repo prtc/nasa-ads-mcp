@@ -6,6 +6,7 @@ import logging
 import logging.handlers
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
 
@@ -92,11 +93,13 @@ async def _api(
     *,
     params: dict[str, Any] | None = None,
     json: Any = None,
+    timeout: float = 30,
 ) -> dict[str, Any]:
     """Call the ADS API and return the decoded JSON, raising ADSError on failure."""
-    headers = {"Authorization": f"Bearer {_get_token()}"}
+    # Some services (the reference resolver) answer in plain text unless asked for JSON
+    headers = {"Authorization": f"Bearer {_get_token()}", "Accept": "application/json"}
     async with httpx.AsyncClient(
-        base_url=ADS_API_BASE, headers=headers, timeout=30, transport=_transport
+        base_url=ADS_API_BASE, headers=headers, timeout=timeout, transport=_transport
     ) as client:
         try:
             response = await client.request(method, path, params=params, json=json)
@@ -833,6 +836,148 @@ async def export_bibtex(bibcodes: Identifiers) -> list[TextContent]:
     if missing:
         text += "\n\n% Not found in ADS: " + ", ".join(missing)
     return [TextContent(type="text", text=text)]
+
+
+# The reference resolver takes about 0.65 s per reference, and each request counts
+# against its own daily limit of 100 requests (not 5,000 like search): a long
+# bibliography goes in a few batches, sent together.
+MAX_REFERENCES = 100
+_REFERENCE_BATCH = 25
+_RESOLVER_TIMEOUT = 90
+_NO_BIBCODE = "..................."
+_NUMBER_TOKEN = re.compile(r"[A-Za-z]*\d+[A-Za-z0-9]*")
+
+
+def _plain(text: str) -> str:
+    """Lowercase, without accents, for comparing names ('Lançon' matches 'Lancon')."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+def _differences(reference: str, doc: dict[str, Any]) -> list[str]:
+    """What the reference says differently from the ADS record it resolved to.
+
+    ADS's resolver forgives typos (a wrong page still finds the paper) and trusts
+    identifiers (a wrong arXiv number finds another paper with score 1.0), so the
+    match is checked against the first author, year, volume and page.
+    """
+    plain = _plain(reference)
+    tokens = {t.lower() for t in _NUMBER_TOKEN.findall(reference)}
+    notes = []
+    first_author = doc.get("first_author") or ""
+    surname = first_author.split(",")[0].split()
+    if surname and _plain(surname[-1]) not in plain:
+        notes.append(f"first author is {first_author}")
+    year = doc.get("year")
+    if year and year not in tokens:
+        notes.append(f"year is {year}")
+    volume = doc.get("volume")
+    page = (doc.get("page") or [None])[0]
+    # A page is only compared when the reference gives the volume too
+    if volume and page and volume.lower() in tokens and page.lower() not in tokens:
+        notes.append(f"page is {page}")
+    return notes
+
+
+async def _resolve_references(references: list[str]) -> list[dict[str, Any]]:
+    """ADS's answer for each reference, in order: refstring, score, bibcode."""
+    batches = [
+        references[i:i + _REFERENCE_BATCH] for i in range(0, len(references), _REFERENCE_BATCH)
+    ]
+    answers = await asyncio.gather(*(
+        _api("POST", "/reference/text", json={"reference": batch}, timeout=_RESOLVER_TIMEOUT)
+        for batch in batches
+    ))
+    resolved = []
+    for batch, answer in zip(batches, answers):
+        items = answer.get("resolved") or []
+        if len(items) != len(batch):  # never pair a reference with another's answer
+            by_text = {item.get("refstring"): item for item in items}
+            items = [by_text.get(reference, {}) for reference in batch]
+        resolved += items
+    return resolved
+
+
+@app.tool(
+    title="Check references",
+    description=(
+        "Check a list of references, as written in a manuscript's bibliography, "
+        "against ADS: finds each paper's bibcode and says whether the reference "
+        "matches the ADS record (first author, year, volume, page). Use it to "
+        "verify a bibliography or to get bibcodes for export_bibtex. Pass one "
+        "reference per list item, up to 100 per call; send a whole bibliography in "
+        "one call, because ADS allows only 100 resolver requests a day. References "
+        "marked CHECK resolved to a paper that differs from what is written, which "
+        "can be a typo in the reference or a wrong match: show the user both. For "
+        "NOT FOUND, try search_papers with the first author and a few title words."
+    ),
+    annotations=ToolAnnotations(title="Check references", **_READ_ONLY),
+)
+async def check_references(
+    references: Annotated[list[str], Field(
+        description=(
+            "References as plain text, one per item, e.g. "
+            "'Coelho P. R. T., 2014, MNRAS, 440, 1027'. Any common style works."
+        ),
+        min_length=1,
+        max_length=MAX_REFERENCES,
+    )],
+) -> list[TextContent]:
+    """Resolve free-text references to ADS bibcodes and check each match."""
+    references = [r.strip() for r in references if r and r.strip()]
+    if not references:
+        raise ADSError("No references provided.")
+    if len(references) > MAX_REFERENCES:
+        raise ADSError(
+            f"At most {MAX_REFERENCES} references per call ({len(references)} given); split the list."
+        )
+    resolved = await _resolve_references(references)
+    bibcodes = list(dict.fromkeys(
+        item["bibcode"] for item in resolved
+        if item.get("bibcode") and item["bibcode"] != _NO_BIBCODE
+    ))
+    records = await _lookup(bibcodes, fl=["first_author", "title", "year", "volume", "page", "pub"]) if bibcodes else {}
+
+    lines, counts, matching = [], {"OK": 0, "CHECK": 0, "NOT FOUND": 0}, []
+    for i, (reference, item) in enumerate(zip(references, resolved), 1):
+        bibcode = item.get("bibcode")
+        doc = records.get(bibcode) if bibcode else None
+        if doc is None:
+            counts["NOT FOUND"] += 1
+            lines.append(f"{i}. NOT FOUND: {reference}")
+            continue
+        notes = _differences(reference, doc)
+        status = "CHECK" if notes else "OK"
+        counts[status] += 1
+        if status == "OK" and doc["bibcode"] not in matching:
+            matching.append(doc["bibcode"])
+        year = doc.get("year", "n/a")
+        line = (
+            f"{i}. {status} {doc.get('bibcode', bibcode)}: {doc.get('first_author', 'Unknown')} "
+            f"{year}, \"{_short(_title(doc))}\""
+        )
+        if notes:
+            line += f"\n   Reference: {reference}\n   In ADS, the {'; the '.join(notes)} (resolver score {item.get('score', 'n/a')})."
+        lines.append(line)
+
+    summary = (
+        f"Checked {len(references)} reference{'s' if len(references) != 1 else ''}: "
+        f"{counts['OK']} match ADS, {counts['CHECK']} to check, {counts['NOT FOUND']} not found."
+    )
+    footer = []
+    if counts["NOT FOUND"]:
+        footer.append(
+            "NOT FOUND: ADS couldn't parse or match these. Try search_papers with the first "
+            "author and a few title words; books, theses and software may not be in ADS."
+        )
+    if matching:
+        footer.append("Bibcodes that match, for export_bibtex: " + ", ".join(matching))
+    if counts["CHECK"]:
+        footer.append(
+            "CHECK: confirm each with the user before exporting it; a wrong match "
+            "would put another paper in the bibliography."
+        )
+    return [TextContent(type="text", text="\n".join([summary, "", *lines, *([""] + footer if footer else [])]))]
 
 
 def _format_metrics(data: dict[str, Any], indent: str = "") -> list[str]:

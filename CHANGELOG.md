@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — 2026-11-05
+
+A new tool for checking a manuscript's bibliography.
+
+### Added
+- `check_references`: paste a reference list (up to 100 references, in any common style) and each one is resolved to its ADS bibcode through ADS's reference service, then compared with the ADS record. Each reference comes back marked OK, CHECK or NOT FOUND, and the bibcodes that match are listed ready for `export_bibtex`.
+- CHECK means the resolver found a paper, but its first author, year or page differs from the reference. ADS's resolver forgives typos (a reference with page 1072 finds the paper on page 1027) and trusts identifiers (a wrong arXiv number found a mathematics paper with full confidence), so the tool shows both, and leaves the CHECK papers out of the list for `export_bibtex`.
+- The resolver allows 100 requests a day and takes about 0.65 s per reference, so a long bibliography is sent in batches of 25 at once (100 references: 4 requests, about 16 s).
+
 ## 0.7.0 — 2026-11-02
 
 The collection filter now shows what it costs, and every tool uses the same default (#15).
