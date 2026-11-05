@@ -125,7 +125,18 @@ async def _api(
         except ValueError:
             detail = response.text
         raise ADSError(f"ADS error {response.status_code}: {detail}")
-    return response.json()
+    # A maintenance page, or a service answering in plain text, must still reach
+    # Claude as a readable ADSError (best-effort lookups catch only that), not as
+    # the SDK's bare "Error executing tool"
+    try:
+        return response.json()
+    except ValueError:
+        logger.warning("ADS sent non-JSON from %s: %.200s", path, response.text)
+        raise ADSError(
+            f"ADS answered {path} with something other than JSON, perhaps a maintenance "
+            "page. Try again in a few minutes; https://ui.adsabs.harvard.edu shows whether "
+            "ADS is up."
+        ) from None
 
 
 async def _search(
